@@ -27,6 +27,8 @@ import csv
 import html as _html
 import streamlit as st
 
+# deploy-marker: visit-care + reservation-growth (as_of 2026-07-06) — redeploy trigger
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
 FALLBACK_PW = "mdc202607"
