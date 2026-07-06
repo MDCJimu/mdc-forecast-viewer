@@ -2,7 +2,7 @@
   "target_month": "2026-07",
   "latest_as_of_date": "2026-07-06",
   "latest_snapshot_dir": "snapshots/2026_07_06",
-  "generated_at": "2026-07-06 12:16:32",
+  "generated_at": "2026-07-06 17:55:08",
   "model_version": "MDC Forecast Model v2.0",
   "dashboard_version": "MDC Forecast Console daily viewer",
   "note": "ローカル運用版で生成した日次スナップショット"

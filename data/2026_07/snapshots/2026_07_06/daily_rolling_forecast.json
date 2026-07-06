@@ -1,7 +1,7 @@
 {
   "target_month": "2026-07",
   "as_of_date": "2026-07-06",
-  "generated_at": "2026-07-06 12:16:32",
+  "generated_at": "2026-07-06 17:55:08",
   "forecast_mode": "日次ローリング予測",
   "model_version": "MDC Forecast Model v2.0",
   "resec_data_status": "反映済み",
@@ -25,21 +25,82 @@
     ],
     "data_cutoff": "2026-07-05"
   },
+  "supplementary": {
+    "visit": {
+      "available": true,
+      "label": "見込",
+      "forecast": 1366,
+      "actual_to_date": 187,
+      "prevyear": 1494.0
+    },
+    "shoshin": {
+      "available": true,
+      "label": "見込",
+      "forecast": 41,
+      "actual_to_date": 8,
+      "prevyear": 38.0
+    },
+    "patient_total": {
+      "available": false,
+      "prevyear": 890.0,
+      "note": "月間ユニーク患者数は日次集計から復元不可のため未取得"
+    },
+    "cancel": {
+      "available": true,
+      "label": "登録済み予約(as_of時点)",
+      "current_rate": 10.3,
+      "current_reservations": 1228,
+      "current_cancels": 126,
+      "prevyear_rate": 14.4
+    },
+    "reservation_composition": {
+      "available": true,
+      "label": "登録済み予約(当月・as_of時点)",
+      "current_total": 1228,
+      "types": {
+        "継続管理型": {
+          "current": 621,
+          "prevyear": 782.0
+        },
+        "都度治療型": {
+          "current": 289,
+          "prevyear": 472.0
+        },
+        "高単価型": {
+          "current": 269,
+          "prevyear": 305.0
+        },
+        "混合・判定保留": {
+          "current": 49,
+          "prevyear": 91.0
+        }
+      }
+    }
+  },
   "thursday_closed_target": true,
-  "current_forecast_total": 16833307,
+  "current_forecast_total": 20590303,
+  "conservative_forecast": 17943168,
+  "v2_month_start_forecast": 19219074,
   "actual_to_date_total": 2747460,
-  "elapsed_unrecorded_total": 748707,
-  "remaining_forecast_total": 13337141,
-  "normal_baseline_forecast": 18913206,
-  "gap_to_normal_baseline": -2079899,
+  "elapsed_unrecorded_total": 900959,
+  "remaining_forecast_total": 14575984,
+  "visit_care_forecast_total": 2365900,
+  "normal_baseline_forecast": 22060027,
+  "gap_to_normal_baseline": -1469723,
   "previous_year_actual": 21089380,
-  "yoy_diff": -4256073,
-  "yoy_rate": -20.2,
-  "forecast_low_80": 15295931,
-  "forecast_high_80": 17833072,
-  "insurance_forecast": 11082817,
-  "selfpay_forecast": 5536748,
-  "product_forecast": 213741,
+  "yoy_diff": -499077,
+  "yoy_rate": -2.4,
+  "forecast_low_80": 18901099,
+  "forecast_high_80": 21688803,
+  "insurance_forecast": 13865292,
+  "insurance_forecast_total": 13865292,
+  "outpatient_insurance_forecast": 11499392,
+  "visit_insurance_forecast": 1466828,
+  "care_forecast": 899072,
+  "visit_care_adjustment_amount": 850706,
+  "visit_care_logic_note": "訪問保険・介護は月初入力遅れのため予約ペース補正(0.85)を適用せず、過去12か月平均で見込み（訪問=1,466,828/介護=899,072）。木曜休診の暦調整も非適用。",
+  "selfpay_forecast": 6476000,
+  "product_forecast": 249011,
   "insurance_prevyear": 14432940,
   "selfpay_prevyear": 6416300,
   "product_prevyear": 240140,
@@ -49,13 +110,26 @@
   "elapsed_unrecorded_days_count": 1,
   "remaining_days_count": 17,
   "reservation_count_remaining": 909,
-  "reservation_factor": 0.85,
+  "reservation_factor": 1.025,
+  "reservation_growth_multiplier": 1.453,
+  "reservation_visible_remaining_as_of": 909,
+  "reservation_projected_final_remaining": 1321,
+  "reservation_factor_raw_before_growth": 0.706,
+  "reservation_factor_after_growth": 1.025,
+  "reservation_factor_final": 1.025,
+  "reservation_growth_by_type": {
+    "都度治療型": 1.87,
+    "継続管理型": 1.268,
+    "高単価型": 1.43,
+    "混合・判定保留": 1.656
+  },
+  "reservation_growth_logic_note": "月中の予約増加を過去実績から見込み、現在見えている予約数だけで過小評価しないよう補正。過去12か月の同日(D6)→月末 残り予約 増加倍率(中央値)=1.45x。現残り予約909件 → 月末最終見込み1321件。factor: 増加織込前0.71 → 織込後1.03 → 適用1.03（上下限[0.85,1.1]）。訪問・介護にはこの予約増加ロジックを適用せず、過去12か月平均で別建て。",
   "insurance_actual_to_date": 1720160,
   "selfpay_actual_to_date": 984500,
   "product_actual_to_date": 42800,
-  "insurance_remaining": 9362657,
-  "selfpay_remaining": 4552248,
-  "product_remaining": 170941,
+  "insurance_remaining": 12145132,
+  "selfpay_remaining": 5491500,
+  "product_remaining": 206211,
   "leak_checks": {
     "1_actual_to_date_取得": {
       "ok": true,
