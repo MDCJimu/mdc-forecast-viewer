@@ -1,0 +1,87 @@
+{
+  "target_month": "2026-07",
+  "as_of_date": "2026-07-06",
+  "generated_at": "2026-07-06 12:16:32",
+  "forecast_mode": "日次ローリング予測",
+  "model_version": "MDC Forecast Model v2.0",
+  "resec_data_status": "反映済み",
+  "apotool_data_status": "反映済み",
+  "actual_data_through": "2026-07-05",
+  "reservation_data_through": "2026-07-31",
+  "last_actual_sales_date": "2026-07-04",
+  "apotool_source": {
+    "fixed_master_max_date": "2026-06-30",
+    "fragment_range": [
+      "2026-07-01",
+      "2026-07-31"
+    ],
+    "dedup_dropped": 0
+  },
+  "resec_source": {
+    "fixed_master_max_date": "2026-06-30",
+    "fragment_range": [
+      "2026-07-01",
+      "2026-07-05"
+    ],
+    "data_cutoff": "2026-07-05"
+  },
+  "thursday_closed_target": true,
+  "current_forecast_total": 16833307,
+  "actual_to_date_total": 2747460,
+  "elapsed_unrecorded_total": 748707,
+  "remaining_forecast_total": 13337141,
+  "normal_baseline_forecast": 18913206,
+  "gap_to_normal_baseline": -2079899,
+  "previous_year_actual": 21089380,
+  "yoy_diff": -4256073,
+  "yoy_rate": -20.2,
+  "forecast_low_80": 15295931,
+  "forecast_high_80": 17833072,
+  "insurance_forecast": 11082817,
+  "selfpay_forecast": 5536748,
+  "product_forecast": 213741,
+  "insurance_prevyear": 14432940,
+  "selfpay_prevyear": 6416300,
+  "product_prevyear": 240140,
+  "high_value_selfpay_low": 2501297,
+  "high_value_selfpay_high": 3835323,
+  "actual_days_count": 3,
+  "elapsed_unrecorded_days_count": 1,
+  "remaining_days_count": 17,
+  "reservation_count_remaining": 909,
+  "reservation_factor": 0.85,
+  "insurance_actual_to_date": 1720160,
+  "selfpay_actual_to_date": 984500,
+  "product_actual_to_date": 42800,
+  "insurance_remaining": 9362657,
+  "selfpay_remaining": 4552248,
+  "product_remaining": 170941,
+  "leak_checks": {
+    "1_actual_to_date_取得": {
+      "ok": true,
+      "detail": "当月レセコン実績日数=3 / actual_data_through=2026-07-05 / status=反映済み"
+    },
+    "2_reservation_取得": {
+      "ok": true,
+      "detail": "as_of翌日以降の予約=909件 / reservation_data_through=2026-07-31 / status=反映済み"
+    },
+    "3_as_of超の実績を不使用": {
+      "ok": true,
+      "detail": "使用実績の最大日付<= as_of(2026-07-06) を満たす。as_of超の当月実績0件は未使用"
+    },
+    "4_未来リークなし": {
+      "ok": true,
+      "detail": "remaining日はすべてas_of超 / as_of後に作成された予約0件は除外"
+    },
+    "5_as_of感度": {
+      "ok": true,
+      "detail": "actual3日 + 経過未反映1日 + 残り17日 に分割（as_ofで変化）"
+    },
+    "6_当月実績未反映の明示": {
+      "ok": true,
+      "detail": "resec_data_status=反映済み（未反映なら画面で『当月実績未反映』を明示）"
+    }
+  },
+  "leak_checks_all_ok": true,
+  "pipeline_status": "OK"
+}

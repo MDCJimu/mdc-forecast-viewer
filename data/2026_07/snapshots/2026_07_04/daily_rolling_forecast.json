@@ -1,0 +1,70 @@
+{
+  "target_month": "2026-07",
+  "as_of_date": "2026-07-04",
+  "generated_at": "2026-07-04 21:52:48",
+  "forecast_mode": "日次ローリング予測",
+  "model_version": "MDC Forecast Model v2.0",
+  "resec_data_status": "未反映",
+  "apotool_data_status": "反映済み",
+  "actual_data_through": null,
+  "reservation_data_through": "2026-07-31",
+  "thursday_closed_target": true,
+  "current_forecast_total": 16502379,
+  "actual_to_date_total": 0,
+  "elapsed_unrecorded_total": 2416532,
+  "remaining_forecast_total": 14085847,
+  "normal_baseline_forecast": 18582278,
+  "gap_to_normal_baseline": -2079899,
+  "previous_year_actual": 21089380,
+  "yoy_diff": -4587001,
+  "yoy_rate": -21.8,
+  "forecast_low_80": 14701255,
+  "forecast_high_80": 17673660,
+  "insurance_forecast": 10954449,
+  "selfpay_forecast": 5346656,
+  "product_forecast": 201274,
+  "insurance_prevyear": 14432940,
+  "selfpay_prevyear": 6416300,
+  "product_prevyear": 240140,
+  "high_value_selfpay_low": 2501297,
+  "high_value_selfpay_high": 3835323,
+  "actual_days_count": 0,
+  "elapsed_unrecorded_days_count": 3,
+  "remaining_days_count": 18,
+  "reservation_count_remaining": 923,
+  "reservation_factor": 0.85,
+  "insurance_actual_to_date": 0,
+  "selfpay_actual_to_date": 0,
+  "product_actual_to_date": 0,
+  "insurance_remaining": 10954449,
+  "selfpay_remaining": 5346656,
+  "product_remaining": 201274,
+  "leak_checks": {
+    "1_actual_to_date_取得": {
+      "ok": true,
+      "detail": "当月レセコン実績日数=0 / actual_data_through=None / status=未反映"
+    },
+    "2_reservation_取得": {
+      "ok": true,
+      "detail": "as_of翌日以降の予約=923件 / reservation_data_through=2026-07-31 / status=反映済み"
+    },
+    "3_as_of超の実績を不使用": {
+      "ok": true,
+      "detail": "使用実績の最大日付<= as_of(2026-07-04) を満たす。as_of超の当月実績0件は未使用"
+    },
+    "4_未来リークなし": {
+      "ok": true,
+      "detail": "remaining日はすべてas_of超 / as_of後に作成された予約0件は除外"
+    },
+    "5_as_of感度": {
+      "ok": true,
+      "detail": "actual0日 + 経過未反映3日 + 残り18日 に分割（as_ofで変化）"
+    },
+    "6_当月実績未反映の明示": {
+      "ok": true,
+      "detail": "resec_data_status=未反映（未反映なら画面で『当月実績未反映』を明示）"
+    }
+  },
+  "leak_checks_all_ok": true,
+  "pipeline_status": "OK"
+}

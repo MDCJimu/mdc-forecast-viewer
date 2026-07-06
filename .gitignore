@@ -1,0 +1,30 @@
+# --- secrets / 環境 ---
+.streamlit/secrets.toml
+.env
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- OS ---
+.DS_Store
+
+# --- 個票・生データ系（万一にも同梱しないための多重ガード）---
+# 生データ・作業フォルダは丸ごと除外
+raw/
+processed/
+logs/
+backups/
+# レセコン/Apotool 原本・患者単位・マスタ系（拡張子問わず名前で除外）
+resec_data.xlsx
+apotool_*.csv
+patient_day_bridge.csv
+resec_daily_master.csv
+resec_monthly_master.csv
+apotool_all_master.csv
+*_master.csv
+
+# 注: forecast_history.csv（予測推移）は集計済みで患者情報を含まないため、
+#     上のいずれにも一致させず、意図的にアップロード対象として残す。
+# 念のため明示的に追跡を許可（*_master.csv 等に一致しないが二重ガード）。
+!forecast_history.csv
