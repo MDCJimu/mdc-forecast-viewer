@@ -1,7 +1,7 @@
 {
   "target_month": "2026-07",
   "as_of_date": "2026-07-07",
-  "generated_at": "2026-07-07 12:20:45",
+  "generated_at": "2026-07-07 15:36:41",
   "forecast_mode": "日次ローリング予測",
   "model_version": "MDC Forecast Model v2.0",
   "resec_data_status": "反映済み",
@@ -41,9 +41,12 @@
       "prevyear": 38.0
     },
     "patient_total": {
-      "available": false,
+      "available": true,
+      "label": "見込",
+      "forecast": 831,
+      "actual_to_date": 224,
       "prevyear": 890.0,
-      "note": "月間ユニーク患者数は日次集計から復元不可のため未取得"
+      "note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.596)。前年同月は monthly_feature_table の確定値。"
     },
     "cancel": {
       "available": true,
@@ -90,6 +93,10 @@
   "previous_year_actual": 21089380,
   "yoy_diff": 4927,
   "yoy_rate": 0.0,
+  "actual_unique_patients_to_date": 224,
+  "forecast_unique_patients_month": 831,
+  "previous_year_unique_patients": 890,
+  "unique_patients_logic_note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.596)。前年同月は monthly_feature_table の確定値。",
   "forecast_low_80": 19482839,
   "forecast_high_80": 22142253,
   "insurance_forecast": 14079356,

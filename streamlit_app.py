@@ -619,10 +619,19 @@ def render(month, snap):
                 f"<div class='py'>{pyline}</div>"
                 f"<div class='cardsw'><span class='sw'>So What</span>{so}</div></div>")
 
-    # 総患者数：月間ユニークは日次集計から復元不可 → データ未取得
+    # 総患者数（月間ユニーク）：当月分は元データ直読みで人数のみ算出、月末は来院見込み×前年圧縮比
     if pat.get("available"):
-        patient_card = cnt_card("総患者数", pat.get("forecast"), pat.get("prevyear"), "人", "mdl",
-                                "来院枠を埋めて患者数を確保する。", "tp-g")
+        fc_ = pat.get("forecast"); atd_ = pat.get("actual_to_date"); py_ = pat.get("prevyear")
+        diff_ = (fc_ - py_) if (fc_ is not None and py_ is not None) else None
+        pyline_ = (f"前年同月 <b>{intv(py_)}人</b>　{sint(diff_)}{pct_of(fc_, py_)}"
+                   if py_ is not None else "前年同月：取得不可")
+        atd_line = (f"<br>当月確定 <b>{intv(atd_)}人</b>（〜{str(actual_through or as_of)}・重複排除）"
+                    if atd_ is not None else "")
+        patient_card = (f"<div class='mfc-card tp-g'><div class='lb'>総患者数{lab('mdl')}</div>"
+                        f"<div class='big'>{intv(fc_)}<span class='u'>人</span></div>"
+                        f"<div class='py'>{pyline_}{atd_line}</div>"
+                        "<div class='cardsw'><span class='sw'>So What</span>"
+                        "来院枠を埋めて患者数を確保する。</div></div>")
     else:
         pyv = pat.get("prevyear")
         patient_card = (f"<div class='mfc-card tp-g'><div class='lb'>総患者数"
@@ -662,7 +671,9 @@ def render(month, snap):
         "<div class='mfc-note'>総来院回数・初診件数は「確定実績（〜" + str(actual_through or as_of)
         + "）＋残り見込み」の当月着地見込み（見込ラベル）。キャンセル率・予約構成は"
         "as_of時点で登録済みの当月予約に基づく実データです。総患者数（月間ユニーク）は"
-        "日次集計から復元できないため未取得としています（推測値は作りません）。</div>",
+        "当月レセコンの受診者を重複排除した確定人数（〜" + str(actual_through or as_of)
+        + "）を基に、月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比で算出しています"
+        "（人数のみ・個人識別子/氏名は保持しません）。</div>",
         unsafe_allow_html=True)
 
     # ========== 6. 予約構成系カード ==========
