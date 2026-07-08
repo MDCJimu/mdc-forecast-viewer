@@ -1,0 +1,168 @@
+{
+  "target_month": "2026-07",
+  "as_of_date": "2026-07-08",
+  "generated_at": "2026-07-08 13:39:54",
+  "forecast_mode": "日次ローリング予測",
+  "model_version": "MDC Forecast Model v2.0",
+  "resec_data_status": "反映済み",
+  "apotool_data_status": "反映済み",
+  "actual_data_through": "2026-07-07",
+  "reservation_data_through": "2026-07-31",
+  "last_actual_sales_date": "2026-07-07",
+  "apotool_source": {
+    "fixed_master_max_date": "2026-06-30",
+    "fragment_range": [
+      "2026-07-01",
+      "2026-07-31"
+    ],
+    "dedup_dropped": 0
+  },
+  "resec_source": {
+    "fixed_master_max_date": "2026-06-30",
+    "fragment_range": [
+      "2026-07-01",
+      "2026-07-07"
+    ],
+    "data_cutoff": "2026-07-07"
+  },
+  "supplementary": {
+    "visit": {
+      "available": true,
+      "label": "見込",
+      "forecast": 1441,
+      "actual_to_date": 331,
+      "prevyear": 1494.0
+    },
+    "shoshin": {
+      "available": true,
+      "label": "見込",
+      "forecast": 42,
+      "actual_to_date": 11,
+      "prevyear": 38.0
+    },
+    "patient_total": {
+      "available": true,
+      "label": "見込",
+      "forecast": 858,
+      "actual_to_date": 278,
+      "prevyear": 890.0,
+      "note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.596)。前年同月は monthly_feature_table の確定値。"
+    },
+    "cancel": {
+      "available": true,
+      "label": "登録済み予約(as_of時点)",
+      "current_rate": 11.4,
+      "current_reservations": 1339,
+      "current_cancels": 152,
+      "prevyear_rate": 14.4
+    },
+    "reservation_composition": {
+      "available": true,
+      "label": "登録済み予約(当月・as_of時点)",
+      "current_total": 1339,
+      "types": {
+        "継続管理型": {
+          "current": 651,
+          "prevyear": 782.0
+        },
+        "都度治療型": {
+          "current": 334,
+          "prevyear": 472.0
+        },
+        "高単価型": {
+          "current": 300,
+          "prevyear": 305.0
+        },
+        "混合・判定保留": {
+          "current": 54,
+          "prevyear": 91.0
+        }
+      }
+    }
+  },
+  "thursday_closed_target": true,
+  "current_forecast_total": 22000707,
+  "conservative_forecast": 18880045,
+  "v2_month_start_forecast": 19219074,
+  "actual_to_date_total": 5051850,
+  "elapsed_unrecorded_total": 853915,
+  "remaining_forecast_total": 13729042,
+  "visit_care_forecast_total": 2365900,
+  "normal_baseline_forecast": 23550753,
+  "gap_to_normal_baseline": -1550046,
+  "previous_year_actual": 21089380,
+  "yoy_diff": 911327,
+  "yoy_rate": 4.3,
+  "actual_unique_patients_to_date": 278,
+  "forecast_unique_patients_month": 858,
+  "previous_year_unique_patients": 890,
+  "unique_patients_logic_note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.596)。前年同月は monthly_feature_table の確定値。",
+  "forecast_low_80": 20409075,
+  "forecast_high_80": 23035754,
+  "insurance_forecast": 14540970,
+  "insurance_forecast_total": 14540970,
+  "outpatient_insurance_forecast": 12175070,
+  "visit_insurance_forecast": 1466828,
+  "care_forecast": 899072,
+  "visit_care_adjustment_amount": 914342,
+  "visit_care_logic_note": "訪問保険・介護は月初入力遅れのため予約ペース補正(0.85)を適用せず、過去12か月平均で見込み（訪問=1,466,828/介護=899,072）。木曜休診の暦調整も非適用。",
+  "selfpay_forecast": 7202453,
+  "product_forecast": 257284,
+  "insurance_prevyear": 14432940,
+  "selfpay_prevyear": 6416300,
+  "product_prevyear": 240140,
+  "high_value_selfpay_low": 2501297,
+  "high_value_selfpay_high": 3835323,
+  "actual_days_count": 5,
+  "elapsed_unrecorded_days_count": 1,
+  "remaining_days_count": 15,
+  "reservation_count_remaining": 874,
+  "reservation_factor": 1.081,
+  "reservation_growth_multiplier": 1.396,
+  "reservation_visible_remaining_as_of": 874,
+  "reservation_projected_final_remaining": 1221,
+  "reservation_factor_raw_before_growth": 0.774,
+  "reservation_factor_after_growth": 1.081,
+  "reservation_factor_final": 1.081,
+  "reservation_growth_by_type": {
+    "継続管理型": 1.24,
+    "都度治療型": 1.751,
+    "混合・判定保留": 1.569,
+    "高単価型": 1.356
+  },
+  "reservation_growth_logic_note": "月中の予約増加を過去実績から見込み、現在見えている予約数だけで過小評価しないよう補正。過去12か月の同日(D8)→月末 残り予約 増加倍率(中央値)=1.40x。現残り予約874件 → 月末最終見込み1221件。factor: 増加織込前0.77 → 織込後1.08 → 適用1.08（上下限[0.85,1.1]）。訪問・介護にはこの予約増加ロジックを適用せず、過去12か月平均で別建て。",
+  "insurance_actual_to_date": 2982470,
+  "selfpay_actual_to_date": 2007500,
+  "product_actual_to_date": 62560,
+  "insurance_remaining": 11558500,
+  "selfpay_remaining": 5194953,
+  "product_remaining": 194724,
+  "leak_checks": {
+    "1_actual_to_date_取得": {
+      "ok": true,
+      "detail": "当月レセコン実績日数=5 / actual_data_through=2026-07-07 / status=反映済み"
+    },
+    "2_reservation_取得": {
+      "ok": true,
+      "detail": "as_of翌日以降の予約=874件 / reservation_data_through=2026-07-31 / status=反映済み"
+    },
+    "3_as_of超の実績を不使用": {
+      "ok": true,
+      "detail": "使用実績の最大日付<= as_of(2026-07-08) を満たす。as_of超の当月実績0件は未使用"
+    },
+    "4_未来リークなし": {
+      "ok": true,
+      "detail": "remaining日はすべてas_of超 / as_of後に作成された予約0件は除外"
+    },
+    "5_as_of感度": {
+      "ok": true,
+      "detail": "actual5日 + 経過未反映1日 + 残り15日 に分割（as_ofで変化）"
+    },
+    "6_当月実績未反映の明示": {
+      "ok": true,
+      "detail": "resec_data_status=反映済み（未反映なら画面で『当月実績未反映』を明示）"
+    }
+  },
+  "leak_checks_all_ok": true,
+  "pipeline_status": "OK"
+}
