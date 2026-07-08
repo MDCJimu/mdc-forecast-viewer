@@ -1,7 +1,7 @@
 {
   "target_month": "2026-07",
   "as_of_date": "2026-07-08",
-  "generated_at": "2026-07-08 13:39:54",
+  "generated_at": "2026-07-08 14:28:12",
   "forecast_mode": "日次ローリング予測",
   "model_version": "MDC Forecast Model v2.0",
   "resec_data_status": "反映済み",
@@ -93,6 +93,36 @@
   "previous_year_actual": 21089380,
   "yoy_diff": 911327,
   "yoy_rate": 4.3,
+  "progress_through_yesterday": {
+    "comparison_base": "外来保険+自費+物販（訪問保険・介護は入力遅れのため同日実績に含めず、月末着地見込みで別建て反映）",
+    "current_cutoff": "2026-07-07",
+    "prev_year_cutoff": "2025-07-07",
+    "current": {
+      "total": 5051850,
+      "insurance_outpatient": 2981790,
+      "selfpay": 2007500,
+      "product": 62560,
+      "clinic_days": 5
+    },
+    "prev_year_same_day": {
+      "total": 5502580,
+      "insurance_outpatient": 3070720,
+      "selfpay": 2357300,
+      "product": 74560,
+      "clinic_days": 6
+    },
+    "yoy_to_date_diff": -450730,
+    "yoy_to_date_rate": -8.2,
+    "prev_year_same_bizdays": {
+      "total": 4973070,
+      "clinic_days": 5,
+      "diff_vs_current": 78780,
+      "rate": 1.6,
+      "note": "前年の月初から当年と同じ診療日数まで累計した参考値。木曜休診等で暦の同日比較がずれるため併記。"
+    },
+    "note": "木曜休診の影響で暦の同日比較は診療日数がずれる場合があるため、同営業日数ベースの参考比較を併記。訪問・介護は月末着地見込みで反映。"
+  },
+  "landing_beats_prevyear": true,
   "actual_unique_patients_to_date": 278,
   "forecast_unique_patients_month": 858,
   "previous_year_unique_patients": 890,

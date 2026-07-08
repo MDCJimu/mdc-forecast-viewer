@@ -429,6 +429,67 @@ def render(month, snap):
     remaining = fnum(roll.get("remaining_forecast_total")) or 0
     sup = roll.get("supplementary") or {}
 
+    # ========== 0. 昨日〆時点の進捗（当年同日 → 前年同日 → 前年差 → 月末着地） ==========
+    prog = roll.get("progress_through_yesterday") or {}
+    if prog:
+        p_cur = prog.get("current") or {}
+        p_py = prog.get("prev_year_same_day") or {}
+        p_biz = prog.get("prev_year_same_bizdays") or {}
+        cur_td = fnum(p_cur.get("total"))
+        py_td = fnum(p_py.get("total"))
+        yoy_td = fnum(prog.get("yoy_to_date_diff"))
+        yoy_td_rate = prog.get("yoy_to_date_rate")
+        cur_cut = prog.get("current_cutoff") or actual_through
+        py_cut = prog.get("prev_year_cutoff") or "—"
+        cur_days = p_cur.get("clinic_days")
+        py_days = p_py.get("clinic_days")
+        biz_days = p_biz.get("clinic_days")
+        biz_total = fnum(p_biz.get("total"))
+        biz_diff = fnum(p_biz.get("diff_vs_current"))
+        biz_rate = p_biz.get("rate")
+        cons0 = fnum(roll.get("conservative_forecast"))
+        beats = bool(roll.get("landing_beats_prevyear"))
+        td_pct = f"（{yoy_td_rate:+.1f}%）" if isinstance(yoy_td_rate, (int, float)) else ""
+        biz_pct = f"（{biz_rate:+.1f}%）" if isinstance(biz_rate, (int, float)) else ""
+        beats_word = "前年を上回る見込み" if beats else "前年を下回る見込み"
+
+        st.markdown('<div class="mfc-sec">昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）</div>',
+                    unsafe_allow_html=True)
+        st.markdown(sowhat(
+            f"昨日〆（<b>{cur_cut}</b>）時点で、今月の確定売上は <b>{man(cur_td)}</b> です。"
+            f"前年同日〆（<b>{py_cut}</b>）時点では <b>{man(py_td)}</b> だったため、"
+            f"現時点では前年差 <b>{sman(yoy_td)}</b>{td_pct} です。"
+            f"この実績に、残り予約・月中の予約増加・訪問介護補正を反映した月末着地見込みは "
+            f"<b>{man(cur)}</b>（{beats_word}）です。"), unsafe_allow_html=True)
+
+        st.markdown(
+            "<div class='mfc-cards4'>"
+            f"<div class='mfc-card tp-o'><div class='lb'>① 昨日〆 当月実績{lab('act')}</div>"
+            f"<div class='big'>{manv(cur_td)}<span class='u'>万円</span></div>"
+            f"<div class='py'>外来保険 {man(p_cur.get('insurance_outpatient'))}／自費 {man(p_cur.get('selfpay'))}"
+            f"／物販 {man(p_cur.get('product'))}<br>{cur_cut}〆・{cur_days}診療日</div></div>"
+            f"<div class='mfc-card tp-r'><div class='lb'>② 前年同日〆 実績{lab('act')}</div>"
+            f"<div class='big'>{manv(py_td)}<span class='u'>万円</span></div>"
+            f"<div class='py'>外来保険 {man(p_py.get('insurance_outpatient'))}／自費 {man(p_py.get('selfpay'))}"
+            f"／物販 {man(p_py.get('product'))}<br>{py_cut}〆・{py_days}診療日</div></div>"
+            f"<div class='mfc-card tp-n'><div class='lb'>③ 現時点 前年差</div>"
+            f"<div class='big'>{smanv(yoy_td)}<span class='u'>万円</span></div>"
+            f"<div class='py'>増減率 {td_pct or '—'}<br>外来保険+自費+物販ベース</div></div>"
+            f"<div class='mfc-card tp-g'><div class='lb'>④ 月末着地見込み{lab('mdl')}</div>"
+            f"<div class='big'>{manv(cur)}<span class='u'>万円</span></div>"
+            f"<div class='py'>保守 {man(cons0)}／前年月末 {man(py)}<br>{beats_word}</div></div>"
+            "</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            "<div class='mfc-warn'>"
+            f"暦の同日比較では <b>当年{cur_days}診療日／前年{py_days}診療日</b> と診療日数がずれます"
+            "（木曜休診の影響）。単純な同日比較にはご注意ください。"
+            f"同じ <b>{biz_days}診療日</b> で揃えた<b>同営業日ベース</b>では、前年同期 <b>{man(biz_total)}</b>・"
+            f"前年差 <b>{sman(biz_diff)}</b>{biz_pct} で、この基準では当年が"
+            f"{'上回っています' if (biz_diff is not None and biz_diff >= 0) else '下回っています'}。"
+            "訪問・介護は入力遅れのため同日実績には含めず、月末着地見込みで別建て反映しています。</div>",
+            unsafe_allow_html=True)
+
     # ========== 1. 最上段サマリー帯 ==========
     r80 = f"{manv(lo)}〜{manv(hi)}" if (lo is not None and hi is not None) else "取得不可"
     yoy_pct = f"（{yoy_rate:+.1f}%）" if isinstance(yoy_rate, (int, float)) else ""
