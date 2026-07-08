@@ -246,140 +246,124 @@ def check_password():
 # ======================================================================
 CSS = """
 <style>
-:root{--navy:#0B1F3A;--navy2:#1A3358;--gold:#C8A96A;--red:#B5544A;--green:#2f8f5b;
-  --ink:#1E1E1E;--muted:#6b7686;--line:#e3e7ee;}
-[data-testid="stDecoration"]{display:none;}
-[data-testid="stHeader"]{background:rgba(255,255,255,0);height:auto;}
-.block-container{padding-top:2.6rem !important;padding-bottom:2rem;max-width:1420px;overflow:visible;}
-.mfc-title{font-size:29px;font-weight:800;color:var(--navy);letter-spacing:.3px;line-height:1.25;margin:.1rem 0 3px;}
-.mfc-vchip{display:inline-block;background:var(--gold);color:#3a2c07;font-size:12px;font-weight:800;
-  border-radius:6px;padding:1px 8px;margin-left:8px;vertical-align:middle;}
-.mfc-sub{font-size:13px;color:var(--muted);margin-bottom:6px;line-height:1.6;}
-.mfc-meta{font-size:12px;color:var(--muted);margin-bottom:8px;}
-.mfc-meta b{color:var(--navy);}
-.mfc-legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted);
-  border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:7px 2px;margin:2px 0 14px;}
-.mfc-warn{background:#fbf1df;border-left:6px solid var(--gold);border-radius:0 10px 10px 0;
-  padding:11px 16px;margin:6px 0 14px;font-size:14px;color:#7a5a10;font-weight:700;}
-/* ラベルチップ（実績/推定/見込/参考） */
-.lab{display:inline-block;font-size:11px;font-weight:800;border-radius:5px;padding:1px 7px;margin-left:7px;
-  vertical-align:middle;letter-spacing:.2px;}
-.lab-act{background:#e5f3ea;color:#1d6b41;border:1px solid #bfe3cd;}
-.lab-mdl{background:#e9eef7;color:#274b86;border:1px solid #c9d6ea;}
-.lab-est{background:#fbf1df;color:#7a5a10;border:1px solid #e7d4a6;}
-.lab-ref{background:#eef0f4;color:#6b7686;border:1px solid #dcdfe6;}
-/* サマリー帯 */
-.mfc-hero{background:linear-gradient(135deg,#0B1F3A 0%,#1A3358 100%);border-radius:16px;
-  padding:18px 22px;color:#fff;box-shadow:0 5px 16px rgba(11,31,58,.28);}
-.mfc-grid6{display:grid;grid-template-columns:1.5fr 1fr 1fr 1.2fr 1.2fr 1.4fr;gap:11px;}
-.mfc-hc{background:rgba(255,255,255,.05);border:1px solid #33507a;border-radius:12px;padding:11px 13px;}
-.mfc-hc .lb{font-size:11px;color:var(--gold);font-weight:700;margin-bottom:5px;letter-spacing:.2px;}
-.mfc-hc .vl{font-size:25px;font-weight:800;color:#fff;line-height:1.05;}
-.mfc-hc .vl .u{font-size:12px;color:#aeb9c9;margin-left:2px;font-weight:700;}
-.mfc-hc .sb{font-size:11px;color:#aeb9c9;margin-top:5px;line-height:1.4;}
-.mfc-hc.main{background:rgba(200,169,106,.15);border-color:var(--gold);}
-.mfc-hc.main .vl{font-size:33px;}
-.mfc-up{color:#7FE0A6 !important;}.mfc-dn{color:#FF9E9E !important;}.mfc-fl{color:#F0C674 !important;}
-/* So What 帯 */
-.mfc-sowhat{border-left:5px solid var(--gold);background:#f7f5ef;border-radius:0 10px 10px 0;
-  padding:10px 15px;margin:10px 0 4px;font-size:13.5px;color:#3b3b3b;line-height:1.7;}
-.mfc-sowhat .sw{color:var(--gold);font-weight:800;margin-right:6px;}
-.mfc-sowhat b{color:var(--navy);}
-/* セクション見出し */
-.mfc-sec{font-size:16px;font-weight:800;color:var(--navy);border-left:6px solid var(--gold);
-  padding-left:10px;margin:22px 0 10px;}
-/* 汎用カードグリッド */
-.mfc-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;}
-.mfc-cards4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
-.mfc-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;
-  box-shadow:0 1px 5px rgba(0,0,0,.05);}
-.mfc-card.tp-g{border-top:4px solid var(--green);}
-.mfc-card.tp-n{border-top:4px solid var(--navy2);}
-.mfc-card.tp-o{border-top:4px solid var(--gold);}
-.mfc-card.tp-r{border-top:4px solid var(--red);}
-.mfc-card .lb{font-size:12.5px;font-weight:800;color:var(--navy);margin-bottom:6px;}
-.mfc-card .big{font-size:27px;font-weight:800;color:var(--navy);line-height:1;}
-.mfc-card .big .u{font-size:13px;color:#8a94a3;margin-left:3px;font-weight:700;}
-.mfc-card .py{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5;}
-.mfc-card .py b{color:var(--navy);}
-.mfc-card .cardsw{font-size:11.5px;color:#5a5f68;margin-top:7px;line-height:1.55;
-  border-top:1px dashed #ececf0;padding-top:6px;}
-.mfc-card .cardsw .sw{color:var(--gold);font-weight:800;}
-.mfc-card .na{font-size:19px;font-weight:800;color:#9aa3b0;}
-/* 進捗4カード（①②③＝着地） */
-.mfc-prog{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
-.mfc-prog .mfc-card.eq{background:linear-gradient(135deg,#eef3fb,#fff);border-color:#c9d6ea;}
-/* 高単価レンジ */
-.mfc-hv{background:linear-gradient(135deg,#fbf4e6,#fff);border:1px solid var(--gold);
-  border-radius:14px;padding:13px 18px;display:flex;align-items:center;gap:18px;
-  box-shadow:0 1px 5px rgba(0,0,0,.05);margin-top:12px;}
-.mfc-hv .lb{font-size:13px;font-weight:800;color:#7a5a10;}
-.mfc-hv .rng{font-size:27px;font-weight:800;color:var(--navy);}
-.mfc-hv .rng .u{font-size:13px;color:#8a94a3;margin-left:3px;}
-.mfc-hv .note{font-size:12px;color:#7a5a10;flex:1;}
-/* 判断サマリー */
-.mfc-judge{border-left:5px solid var(--gold);background:#f6f7f9;border-radius:0 10px 10px 0;
-  padding:12px 16px;margin:6px 0 4px;font-size:14px;color:#333;line-height:1.7;}
-.mfc-judge b{color:var(--navy);}.mfc-judge ul{margin:6px 0 0;padding-left:20px;}.mfc-judge li{margin:3px 0;}
-/* 差分・アクション */
-.mfc-diff{background:#fff;border:1px solid var(--line);border-top:4px solid var(--gold);border-radius:14px;
-  padding:13px 18px;box-shadow:0 1px 5px rgba(0,0,0,.05);font-size:14px;color:#333;line-height:1.8;}
-.mfc-diff b{color:var(--navy);}
-.mfc-actions{background:#fff;border:1px solid var(--line);border-top:4px solid var(--gold);border-radius:14px;
-  padding:15px 20px;box-shadow:0 1px 6px rgba(0,0,0,.06);}
-.mfc-actions .h{font-size:15px;font-weight:800;color:var(--navy);margin-bottom:10px;}
-.mfc-actions ul{list-style:none;margin:0;padding:0;}
-.mfc-actions li{font-size:14px;color:#2b2b2b;padding:9px 0 9px 30px;position:relative;
-  border-bottom:1px dashed #ececf0;line-height:1.5;}
-.mfc-actions li:last-child{border-bottom:none;}
-.mfc-actions li:before{content:'▢';position:absolute;left:4px;color:var(--gold);font-weight:800;}
-.mfc-note{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.6;}
-@media (max-width:900px){
-  .mfc-grid6{grid-template-columns:1fr 1fr;}.mfc-hc.main{grid-column:span 2;}
-  .mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr 1fr;}
-  .mfc-hv{flex-direction:column;align-items:flex-start;gap:8px;}
-  .mfc-title{font-size:23px;}.mfc-hc .vl{font-size:22px;}.mfc-hc.main .vl{font-size:28px;}
+:root{
+  --navy:#0B1F3A;--navy2:#16305a;--ink:#161C26;--muted:#697180;--faint:#9AA3B0;
+  --line:#E8EBF1;--bg:#F4F5F8;--card:#FFFFFF;--gold:#B08A4E;--gold2:#CBA968;
+  --green:#2E8B57;--blue:#2F6BD6;--red:#BC5548;
+  --shadow:0 10px 30px -18px rgba(18,28,48,.35);
 }
-/* ===== 商品化レイアウト：色の意味＝実績緑/推定青/見込金/注意赤/参考グレー ===== */
-.mfc-card.tp-b{border-top:4px solid #2f6bd6;}
-.mfc-tier{display:flex;align-items:center;gap:10px;font-size:12.5px;font-weight:800;color:#98a2b0;
-  letter-spacing:.5px;margin:30px 0 10px;}
-.mfc-tier .n{background:var(--navy);color:#fff;border-radius:7px;padding:2px 10px;font-size:12px;}
-.mfc-tier .ln{flex:1;height:1px;background:var(--line);}
-.mfc-colkey{display:flex;gap:13px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--muted);
-  border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:7px 2px;margin:2px 0 6px;}
-.mfc-colkey .d{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
-/* 今日の結論（経営サマリー・ヒーロー） */
-.mfc-conc{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;
-  background:linear-gradient(135deg,#0B1F3A 0%,#1A3358 100%);border-radius:18px;
-  padding:22px 26px;color:#fff;box-shadow:0 7px 22px rgba(11,31,58,.32);}
-.mfc-conc .cLbl{font-size:12px;color:var(--gold);font-weight:800;letter-spacing:.3px;}
-.mfc-conc .cBig{font-size:54px;font-weight:800;line-height:1.0;margin:3px 0 10px;}
-.mfc-conc .cBig span{font-size:19px;color:#aeb9c9;margin-left:5px;font-weight:700;}
-.mfc-conc .cV{display:inline-block;font-size:14px;font-weight:800;border-radius:9px;padding:5px 13px;}
-.mfc-conc .cV.up{background:rgba(127,224,166,.15);color:#7FE0A6;border:1px solid #2f8f5b;}
-.mfc-conc .cV.dn{background:rgba(255,158,158,.13);color:#FF9E9E;border:1px solid #b5544a;}
-.mfc-conc .cRight{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;align-content:center;
-  border-left:1px solid #33507a;padding-left:20px;}
-.mfc-conc .cItem{font-size:12px;color:#aeb9c9;line-height:1.3;}
-.mfc-conc .cItem b{display:block;font-size:20px;color:#fff;font-weight:800;margin-top:1px;}
-.mfc-conc .cItem small{display:block;color:#8ea0b6;font-weight:700;font-size:11px;}
-/* 今日の見立て（So What 集約帯） */
-.mfc-take{border-left:5px solid var(--gold);background:#fbf7ee;border-radius:0 12px 12px 0;
-  padding:14px 18px;margin:13px 0 4px;font-size:15px;color:#2b2b2b;line-height:1.6;font-weight:700;}
-.mfc-take .k{display:inline-block;background:var(--gold);color:#3a2c07;font-size:11px;font-weight:800;
-  border-radius:6px;padding:2px 10px;margin-right:11px;vertical-align:middle;}
-.mfc-take b{color:var(--navy);}
-.mfc-take ul{margin:9px 0 0;padding-left:20px;font-weight:600;font-size:13.5px;color:#3b3b3b;}
-.mfc-take li{margin:3px 0;}
-/* 予約補正チップ（既存参照・未定義だったので定義） */
-.mfc-split{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 6px;}
-.mfc-chip{background:#fff;border:1px solid var(--line);border-radius:11px;padding:9px 14px;font-size:13px;
-  color:#333;box-shadow:0 1px 4px rgba(0,0,0,.04);}
-.mfc-chip b{color:var(--navy);}
-@media (max-width:900px){.mfc-conc{grid-template-columns:1fr;}
-  .mfc-conc .cRight{border-left:none;padding-left:0;border-top:1px solid #33507a;padding-top:12px;}
-  .mfc-conc .cBig{font-size:40px;}}
+html,body{background:var(--bg);}
+.stApp,[data-testid="stAppViewContainer"]{background:var(--bg);
+  font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI",Meiryo,system-ui,-apple-system,sans-serif;
+  color:var(--ink);}
+[data-testid="stDecoration"]{display:none;}
+[data-testid="stHeader"]{background:transparent;height:0;}
+[data-testid="stToolbar"],[data-testid="stAppDeployButton"],#MainMenu{display:none;}
+[data-testid="stSidebar"]{background:#fff;border-right:1px solid var(--line);}
+.block-container{max-width:1120px;padding-top:2.4rem !important;padding-bottom:4rem;}
+*{font-feature-settings:"palt";}
+hr{display:none;}
+/* ---- ヘッダー ---- */
+.mfc-title{font-size:42px;font-weight:800;color:var(--navy);letter-spacing:-.8px;line-height:1.08;margin:0 0 8px;text-wrap:balance;}
+.mfc-vchip{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:1.5px;color:var(--gold);
+  border:1px solid var(--gold);border-radius:20px;padding:3px 12px;margin-left:13px;vertical-align:middle;text-transform:uppercase;}
+.mfc-sub{font-size:15px;color:var(--muted);margin:0 0 4px;line-height:1.7;max-width:770px;}
+.mfc-meta{font-size:13px;color:var(--faint);margin:12px 0 0;}
+.mfc-meta b{color:var(--navy);font-weight:700;}
+.mfc-warn{background:#FBF3E4;border:1px solid #ECD9B0;border-radius:12px;
+  padding:13px 18px;margin:18px 0 4px;font-size:14px;color:#836018;font-weight:600;line-height:1.6;}
+.mfc-colkey{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--faint);margin:16px 0 2px;}
+.mfc-colkey .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:0;}
+/* ---- ラベルチップ ---- */
+.lab{display:inline-block;font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 8px;margin-left:8px;
+  vertical-align:middle;letter-spacing:.4px;}
+.lab-act{background:#E7F2EC;color:#22694A;}
+.lab-mdl{background:#E9F0FB;color:#295BB8;}
+.lab-est{background:#F6EFDE;color:#8A6A24;}
+.lab-ref{background:#EFF1F5;color:#6B7686;}
+/* ---- 大見出し（階層＝主役・見出し文字が主役）---- */
+.mfc-tier{margin:58px 0 8px;font-size:31px;font-weight:800;color:var(--navy);letter-spacing:-.5px;line-height:1.15;text-wrap:balance;}
+.mfc-tier .n{display:block;font-size:11px;font-weight:800;letter-spacing:2.5px;color:var(--gold);
+  text-transform:uppercase;margin-bottom:8px;}
+.mfc-tier .ln{display:none;}
+/* ---- 小見出し ---- */
+.mfc-sec{font-size:21px;font-weight:800;color:var(--navy);margin:34px 0 16px;letter-spacing:-.3px;line-height:1.25;}
+/* ---- 今日の結論（ヒーロー）---- */
+.mfc-conc{display:grid;grid-template-columns:1.45fr 1fr;gap:34px;align-items:center;
+  background:radial-gradient(120% 140% at 88% 6%,rgba(203,169,104,.16),transparent 42%),
+    linear-gradient(155deg,#0a1b31 0%,#122f57 60%,#16386c 100%);
+  border-radius:22px;padding:36px 42px;color:#fff;box-shadow:0 24px 56px -24px rgba(11,31,58,.62);}
+.mfc-conc .cLbl{font-size:12px;color:var(--gold2);font-weight:800;letter-spacing:2px;text-transform:uppercase;}
+.mfc-conc .cBig{font-size:62px;font-weight:800;line-height:1;margin:12px 0 18px;letter-spacing:-1.5px;font-variant-numeric:tabular-nums;}
+.mfc-conc .cBig span{font-size:22px;color:#aeb9c9;margin-left:7px;font-weight:700;letter-spacing:0;}
+.mfc-conc .cV{display:inline-flex;align-items:center;font-size:14.5px;font-weight:800;border-radius:30px;padding:8px 18px;}
+.mfc-conc .cV.up{background:rgba(120,214,160,.13);color:#8FE3B0;border:1px solid rgba(120,214,160,.42);}
+.mfc-conc .cV.dn{background:rgba(232,150,150,.12);color:#FFB3B3;border:1px solid rgba(232,150,150,.42);}
+.mfc-conc .cRight{display:grid;grid-template-columns:1fr 1fr;gap:20px 22px;align-content:center;
+  border-left:1px solid rgba(255,255,255,.14);padding-left:30px;}
+.mfc-conc .cItem{font-size:12.5px;color:#a9b5c6;line-height:1.35;}
+.mfc-conc .cItem b{display:block;font-size:23px;color:#fff;font-weight:800;margin-top:3px;letter-spacing:-.4px;font-variant-numeric:tabular-nums;}
+.mfc-conc .cItem small{display:block;color:#8494a8;font-weight:600;font-size:11.5px;margin-top:2px;}
+/* ---- 今日の見立て ---- */
+.mfc-take{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--gold);
+  border-radius:14px;padding:20px 24px;margin:16px 0 0;font-size:16px;color:var(--ink);line-height:1.65;font-weight:600;box-shadow:var(--shadow);}
+.mfc-take .k{display:block;font-size:11px;font-weight:800;letter-spacing:2px;color:var(--gold);text-transform:uppercase;margin-bottom:9px;}
+.mfc-take b{color:var(--navy);font-weight:800;}
+.mfc-take ul{margin:13px 0 0;padding:0;list-style:none;display:grid;gap:8px;font-weight:500;font-size:14px;color:var(--muted);}
+.mfc-take li{padding-left:20px;position:relative;line-height:1.5;}
+.mfc-take li:before{content:"→";position:absolute;left:0;color:var(--gold);font-weight:800;}
+/* ---- カード共通 ---- */
+.mfc-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+.mfc-cards4{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;}
+.mfc-prog{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;}
+.mfc-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:var(--shadow);}
+.mfc-card .lb{font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;flex-wrap:wrap;line-height:1.3;}
+.mfc-card .big{font-size:36px;font-weight:800;color:var(--navy);line-height:1;letter-spacing:-.7px;font-variant-numeric:tabular-nums;}
+.mfc-card .big .u{font-size:14px;color:var(--faint);margin-left:4px;font-weight:700;letter-spacing:0;}
+.mfc-card .py{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.65;}
+.mfc-card .py b{color:var(--navy);font-weight:700;}
+.mfc-card .na{font-size:18px;font-weight:800;color:var(--faint);}
+.mfc-card .cardsw{display:none;}
+/* 上部アクセント（控えめ・色の意味）*/
+.mfc-card.tp-g{box-shadow:var(--shadow),inset 0 3px 0 var(--green);}
+.mfc-card.tp-b{box-shadow:var(--shadow),inset 0 3px 0 var(--blue);}
+.mfc-card.tp-o{box-shadow:var(--shadow),inset 0 3px 0 var(--gold);}
+.mfc-card.tp-r{box-shadow:var(--shadow),inset 0 3px 0 var(--red);}
+.mfc-card.tp-n{box-shadow:var(--shadow),inset 0 3px 0 #cfd6e1;}
+/* ---- 予約補正チップ ---- */
+.mfc-split{display:flex;gap:14px;flex-wrap:wrap;}
+.mfc-chip{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;font-size:12.5px;
+  color:var(--muted);box-shadow:var(--shadow);min-width:150px;}
+.mfc-chip b{color:var(--navy);font-size:18px;display:block;margin-top:4px;font-weight:800;font-variant-numeric:tabular-nums;}
+.mfc-chip.key{background:linear-gradient(150deg,#102a4c,#16386c);border:none;color:#a9b5c6;}
+.mfc-chip.key b{color:#fff;}
+/* ---- 注記 ---- */
+.mfc-note{font-size:14px;color:var(--muted);margin:16px 2px 0;line-height:1.75;}
+.mfc-note b{color:var(--navy);font-weight:700;}
+/* ---- 折りたたみ内（判断/差分/打ち手）---- */
+.mfc-judge{font-size:14.5px;color:var(--ink);line-height:1.75;}
+.mfc-judge b{color:var(--navy);}.mfc-judge ul{margin:10px 0 0;padding-left:20px;}.mfc-judge li{margin:5px 0;}
+.mfc-diff{font-size:14.5px;color:var(--ink);line-height:1.75;}
+.mfc-diff b{color:var(--navy);}
+.mfc-actions ul{list-style:none;margin:0;padding:0;}
+.mfc-actions li{font-size:14.5px;color:var(--ink);padding:12px 0 12px 28px;position:relative;border-bottom:1px solid var(--line);line-height:1.55;}
+.mfc-actions li:last-child{border-bottom:none;}
+.mfc-actions li:before{content:"→";position:absolute;left:2px;color:var(--gold);font-weight:800;}
+.mfc-actions .h{display:none;}
+/* ---- Streamlit expander ---- */
+[data-testid="stExpander"]{border:1px solid var(--line)!important;border-radius:14px!important;
+  background:var(--card);box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden;}
+[data-testid="stExpander"] summary{font-size:15px;font-weight:700;color:var(--navy);padding:14px 18px;}
+[data-testid="stExpander"] summary:hover{color:var(--gold);}
+/* ---- レスポンシブ ---- */
+@media (max-width:900px){
+  .mfc-title{font-size:32px;}.mfc-tier{font-size:25px;}.mfc-sec{font-size:19px;}
+  .mfc-conc{grid-template-columns:1fr;gap:22px;padding:26px 24px;}
+  .mfc-conc .cBig{font-size:48px;}
+  .mfc-conc .cRight{border-left:none;border-top:1px solid rgba(255,255,255,.14);padding-left:0;padding-top:20px;}
+  .mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr 1fr;}
+}
+@media (max-width:560px){.mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr;}}
 </style>
 """
 
@@ -424,25 +408,24 @@ def render(month, snap):
     res_through = meta.get("reservation_data_through") or roll.get("reservation_data_through")
 
     # ---------- タイトル + 凡例 ----------
-    st.markdown('<div class="mfc-title">MDC Forecast Console｜日次ローリング予測'
+    st.markdown('<div class="mfc-title">MDC Forecast Console'
                 '<span class="mfc-vchip">正データ</span></div>', unsafe_allow_html=True)
     st.markdown(
-        "<div class='mfc-sub'>院内検証用・クラウド閲覧専用画面です。表示値は確定値ではなく、"
-        "経営判断の中心線（推定値）です。月末後に実績と照合して検証します。</div>",
+        "<div class='mfc-sub'><b style='color:#0B1F3A;font-weight:800'>日次ローリング予測｜経営ダッシュボード</b>　"
+        "表示値は確定値ではなく、経営判断の中心線（推定値）です。月末後に実績と照合して検証します。</div>",
         unsafe_allow_html=True)
     st.markdown(
-        f"<div class='mfc-meta'>対象月：<b>{ym_jp}</b>　｜　予測基準日(as_of)：<b>{as_of}</b>　｜　"
-        f"予測方式：<b>{meta.get('forecast_mode','日次ローリング予測')}</b>　｜　"
-        f"モデル：{roll.get('model_version','MDC Forecast Model v2.0')}　｜　生成：{gen_at}</div>",
+        f"<div class='mfc-meta'>対象月 <b>{ym_jp}</b>　·　予測基準日 <b>{as_of}</b>　·　"
+        f"{meta.get('forecast_mode','日次ローリング予測')}　·　"
+        f"{roll.get('model_version','MDC Forecast Model v2.0')}　·　生成 {gen_at}　·　院内検証用・閲覧専用</div>",
         unsafe_allow_html=True)
     st.markdown(
         "<div class='mfc-colkey'>"
-        "<span><span class='d' style='background:#2f8f5b'></span>実績</span>"
-        "<span><span class='d' style='background:#2f6bd6'></span>推定</span>"
-        "<span><span class='d' style='background:#C8A96A'></span>見込</span>"
-        "<span><span class='d' style='background:#B5544A'></span>注意</span>"
-        "<span><span class='d' style='background:#98a2b0'></span>参考</span>"
-        "<span style='color:#98a2b0'>｜ 表示はすべて集計済み・推定の中心線です</span>"
+        "<span><span class='d' style='background:#2E8B57'></span>実績</span>"
+        "<span><span class='d' style='background:#2F6BD6'></span>推定</span>"
+        "<span><span class='d' style='background:#B08A4E'></span>見込</span>"
+        "<span><span class='d' style='background:#BC5548'></span>注意</span>"
+        "<span><span class='d' style='background:#9AA3B0'></span>参考</span>"
         "</div>", unsafe_allow_html=True)
 
     # ---------- 当月実績未反映の警告 ----------
@@ -503,7 +486,7 @@ def render(month, snap):
     takeaway = (f"足元は前年同日比では<b>{foot_word}</b>だが、"
                 f"同営業日ベースでは<b>{biz_word}</b>、月末は<b>{month_word}</b>。")
 
-    st.markdown('<div class="mfc-tier"><span class="n">1</span>経営サマリー（今日の結論）'
+    st.markdown('<div class="mfc-tier"><span class="n">SUMMARY</span>今日の結論'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
     st.markdown(
         "<div class='mfc-conc'><div class='cLeft'>"
@@ -554,7 +537,7 @@ def render(month, snap):
     v2ms = fnum(roll.get("v2_month_start_forecast"))
     rvis = roll.get("reservation_visible_remaining_as_of")
     rproj = roll.get("reservation_projected_final_remaining")
-    st.markdown('<div class="mfc-tier"><span class="n">2</span>着地根拠'
+    st.markdown('<div class="mfc-tier"><span class="n">EVIDENCE</span>着地の根拠'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
     st.markdown('<div class="mfc-sec">月末着地見込みの比較（基準・保守・参考・前年）</div>', unsafe_allow_html=True)
     st.markdown(
@@ -627,7 +610,7 @@ def render(month, snap):
             unsafe_allow_html=True)
 
     # ===== 第3階層：詳細分析 =====
-    st.markdown('<div class="mfc-tier"><span class="n">3</span>詳細分析（必要に応じて開く）'
+    st.markdown('<div class="mfc-tier"><span class="n">DETAIL</span>詳細分析'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
 
     # ----- 患者数・来院系 -----
@@ -700,40 +683,36 @@ def render(month, snap):
         "（人数のみ・個人情報は非保持）。キャンセル率・予約構成は as_of時点の登録済み予約の実データ。</div>",
         unsafe_allow_html=True)
 
-    # ----- 予約構成 -----
-    st.markdown('<div class="mfc-sec">予約構成（登録済み予約・as_of時点）</div>', unsafe_allow_html=True)
-    comp = sup.get("reservation_composition") or {}
-    if comp.get("available"):
-        types = comp.get("types") or {}
-        order = [("継続管理型", "tp-g", "継続来院の充足を維持して着地の下支えに。"),
-                 ("都度治療型", "tp-n", "未充足枠・キャンセル枠を洗い出して補充する。"),
-                 ("高単価型", "tp-o", "案件増が要因なら充足維持で着地の下支えに。"),
-                 ("混合・判定保留", "tp-r", "未充足枠・キャンセル枠を洗い出して補充する。")]
-        cards = []
-        for name, tp, so in order:
-            t = types.get(name) or {}
-            cv = t.get("current"); pv = t.get("prevyear")
-            diff = (cv - pv) if (cv is not None and pv is not None) else None
-            pyline = (f"前年同月(実績) <b>{intv(pv)}件</b>　{sint(diff)}{pct_of(cv, pv)}"
-                      if pv is not None else "前年同月：取得不可")
-            cards.append(
-                f"<div class='mfc-card {tp}'><div class='lb'>{name}{lab('act')}</div>"
-                f"<div class='big'>{intv(cv)}<span class='u'>件</span></div>"
-                f"<div class='py'>登録済み予約(as_of時点)<br>{pyline}</div>"
-                f"<div class='cardsw'><span class='sw'>So What</span>{so}</div></div>")
-        st.markdown("<div class='mfc-cards4'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
-        st.markdown(
-            "<div class='mfc-note'>当月(" + ym_jp + ")の<b>as_of時点で登録済みの予約</b>を型別に集計した"
-            "実データ（合計 " + intv(comp.get("current_total")) + "件）。前年同月は確定実績（月間）です。"
-            "月内はこれから登録・キャンセルが増減するため、前年との単純比較ではなく"
-            "<b>充足・空き枠の管理指標</b>として見ます。</div>", unsafe_allow_html=True)
-    else:
-        st.markdown("<div class='mfc-card'><div class='na'>データ未取得</div>"
-                    "<div class='py'>当月の予約構成データが取得できません。</div></div>",
-                    unsafe_allow_html=True)
+    # ----- 予約構成（折りたたみ）-----
+    with st.expander("予約構成の内訳（登録済み予約・as_of時点）", expanded=False):
+        comp = sup.get("reservation_composition") or {}
+        if comp.get("available"):
+            types = comp.get("types") or {}
+            order = [("継続管理型", "tp-g"), ("都度治療型", "tp-n"),
+                     ("高単価型", "tp-o"), ("混合・判定保留", "tp-r")]
+            cards = []
+            for name, tp in order:
+                t = types.get(name) or {}
+                cv = t.get("current"); pv = t.get("prevyear")
+                diff = (cv - pv) if (cv is not None and pv is not None) else None
+                pyline = (f"前年同月(実績) <b>{intv(pv)}件</b>　{sint(diff)}{pct_of(cv, pv)}"
+                          if pv is not None else "前年同月：取得不可")
+                cards.append(
+                    f"<div class='mfc-card {tp}'><div class='lb'>{name}{lab('act')}</div>"
+                    f"<div class='big'>{intv(cv)}<span class='u'>件</span></div>"
+                    f"<div class='py'>登録済み予約(as_of時点)<br>{pyline}</div></div>")
+            st.markdown("<div class='mfc-cards4'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div class='mfc-note'>当月(" + ym_jp + ")の as_of時点で登録済みの予約を型別集計した実データ"
+                "（合計 " + intv(comp.get("current_total")) + "件）。月内に登録・キャンセルが増減するため、"
+                "前年比ではなく<b>充足・空き枠の管理指標</b>として見ます。</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='mfc-card'><div class='na'>データ未取得</div>"
+                        "<div class='py'>当月の予約構成データが取得できません。</div></div>",
+                        unsafe_allow_html=True)
 
     # ===== 参考レポート（折りたたみ）=====
-    st.markdown('<div class="mfc-tier"><span class="n">参考</span>参考レポート（折りたたみ）'
+    st.markdown('<div class="mfc-tier"><span class="n">REFERENCE</span>参考レポート'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
 
     with st.expander("売上内訳・判断サマリー（詳細）", expanded=False):
@@ -908,8 +887,8 @@ if check_password():
                     st.caption(f"最新基準日：{latest.get('latest_as_of_date')}")
             else:
                 st.warning("この対象月にスナップショットがありません。")
-        st.caption("更新はローカル運用版（run_daily_forecast_update.bat）で行います。"
-                   "生成された latest.json / forecast_history.csv / snapshots のみをクラウドへ反映します。")
+        st.caption("予測は毎日ローカルで自動更新し、集計済みの結果のみをクラウドへ反映します。"
+                   "個人情報・患者単位データは一切含みません。")
 
     if not months:
         st.markdown('<div style="font-size:29px;font-weight:800;color:#0B1F3A;">'
