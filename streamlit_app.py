@@ -312,6 +312,52 @@ hr{display:none;}
 .mfc-take ul{margin:13px 0 0;padding:0;list-style:none;display:grid;gap:8px;font-weight:500;font-size:14px;color:var(--muted);}
 .mfc-take li{padding-left:20px;position:relative;line-height:1.5;}
 .mfc-take li:before{content:"→";position:absolute;left:0;color:var(--gold);font-weight:800;}
+/* ---- ヒーロー追補（プレミアム）---- */
+.mfc-conc{padding:40px 44px;gap:40px;}
+.mfc-conc .cBig{font-size:66px;margin:14px 0 20px;}
+.mfc-conc .cRow{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.mfc-conc .cBadge{display:inline-flex;align-items:center;font-size:14px;font-weight:800;letter-spacing:.3px;
+  border-radius:30px;padding:9px 20px;background:linear-gradient(135deg,#d8bd86,#b0894e);color:#241a06;
+  box-shadow:0 8px 20px -8px rgba(176,138,78,.75);}
+.mfc-conc .cBadge.dn{background:linear-gradient(135deg,#e2b4b0,#b5544a);color:#2a0f0c;box-shadow:0 8px 20px -8px rgba(181,84,74,.6);}
+.mfc-conc .cYoY{font-size:15px;color:#c4cedd;font-weight:700;}
+.mfc-conc .cYoY em{font-style:normal;color:#8FE3B0;}
+.mfc-conc .cRight{grid-template-columns:1fr;gap:20px;padding-left:34px;}
+.mfc-conc .cItem b small{font-size:13px;color:#aeb9c9;margin-left:3px;font-weight:700;}
+/* ---- 経営アクションカード ---- */
+.mfc-act{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 26px;margin:16px 0 0;box-shadow:var(--shadow);}
+.mfc-act .k{font-size:11px;font-weight:800;letter-spacing:2px;color:var(--gold);text-transform:uppercase;margin-bottom:11px;}
+.mfc-act .lead{font-size:16.5px;font-weight:700;color:var(--navy);line-height:1.55;margin-bottom:17px;}
+.mfc-act .lead b{color:var(--navy);}
+.mfc-act .rows{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.mfc-act .r{background:#FAFBFC;border:1px solid var(--line);border-radius:12px;padding:15px 17px;}
+.mfc-act .r .t{display:block;font-size:14px;font-weight:800;color:var(--navy);margin-bottom:5px;}
+.mfc-act .r .t:before{content:"→ ";color:var(--gold);}
+.mfc-act .r .d{font-size:12.5px;color:var(--muted);line-height:1.55;}
+/* ---- 比較チップ（暦同日/同営業日）---- */
+.mfc-cmp{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:16px 2px 0;}
+.mfc-cmp .chip{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;color:var(--muted);
+  border-radius:30px;padding:9px 17px;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow);}
+.mfc-cmp .chip .lbl{color:var(--navy);font-weight:800;}
+.mfc-cmp .chip b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;}
+.mfc-cmp .chip em{font-style:normal;font-size:12px;}
+.mfc-cmp .chip.green b,.mfc-cmp .chip.green em{color:var(--green);}
+.mfc-cmp .chip.red b,.mfc-cmp .chip.red em{color:var(--red);}
+.mfc-cmp .muted{font-size:12.5px;color:var(--faint);line-height:1.5;flex:1;min-width:230px;}
+/* ---- チャートカード ---- */
+.mfc-charthead{font-size:15px;font-weight:800;color:var(--navy);margin:6px 2px 10px;}
+.mfc-charthead .sub{font-size:12.5px;color:var(--muted);font-weight:600;margin-left:10px;}
+[data-testid="stImage"]{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);}
+[data-testid="stImage"] img{border-radius:6px;}
+[data-testid="stVegaLiteChart"]{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 20px 12px;box-shadow:var(--shadow);}
+[data-testid="stElementToolbar"]{display:none!important;}
+.vega-embed .vega-actions,.vega-embed summary{display:none!important;}
+[data-testid="stElementToolbarButton"]{display:none!important;}
+.mfc-clegend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:11px 2px 0;}
+.mfc-clegend span:before{content:"";display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:3px;}
+.mfc-clegend .l1:before{background:#0B1F3A;}
+.mfc-clegend .l2:before{height:0;border-top:2px dashed #B08A4E;}
+.mfc-clegend .l3:before{background:rgba(11,31,58,.13);height:9px;}
 /* ---- カード共通 ---- */
 .mfc-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
 .mfc-cards4{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;}
@@ -360,8 +406,10 @@ hr{display:none;}
   .mfc-title{font-size:32px;}.mfc-tier{font-size:25px;}.mfc-sec{font-size:19px;}
   .mfc-conc{grid-template-columns:1fr;gap:22px;padding:26px 24px;}
   .mfc-conc .cBig{font-size:48px;}
-  .mfc-conc .cRight{border-left:none;border-top:1px solid rgba(255,255,255,.14);padding-left:0;padding-top:20px;}
+  .mfc-conc .cRight{border-left:none;border-top:1px solid rgba(255,255,255,.14);padding-left:0;padding-top:20px;
+    grid-template-columns:1fr 1fr;}
   .mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr 1fr;}
+  .mfc-act .rows{grid-template-columns:1fr;}
 }
 @media (max-width:560px){.mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr;}}
 </style>
@@ -383,6 +431,42 @@ def hc(lb, num, unit="万円", cls="", numcls="", sub=""):
 
 def sowhat(text):
     return f"<div class='mfc-sowhat'><span class='sw'>So What</span>{text}</div>"
+
+
+def trend_chart(hist, py_actual):
+    """日次予測の推移グラフ（Altair＝Streamlit同梱・外部CDN不使用）。
+    基準予測ライン＋80%レンジ帯＋前年同月ベースライン。凡例はHTML側で表示。"""
+    import pandas as pd
+    import altair as alt
+
+    pts = [r for r in hist if fnum(r.get("current_forecast_total"))]
+    if not pts:
+        return None
+    df = pd.DataFrame([{
+        "as_of": r.get("as_of_date"),
+        "基準予測": (fnum(r.get("current_forecast_total")) or 0) / 1e4,
+        "lo": (fnum(r.get("forecast_low_80")) or 0) / 1e4,
+        "hi": (fnum(r.get("forecast_high_80")) or 0) / 1e4,
+    } for r in pts])
+    NAVY, GOLD = "#0B1F3A", "#B08A4E"
+    x = alt.X("as_of:T", axis=alt.Axis(format="%m-%d", title=None, labelAngle=0, tickCount=len(df)))
+    ys = alt.Scale(zero=False, nice=True)
+    band = alt.Chart(df).mark_area(color=NAVY, opacity=0.10).encode(
+        x=x, y=alt.Y("lo:Q", scale=ys, title=None), y2="hi:Q")
+    line = alt.Chart(df).mark_line(color=NAVY, strokeWidth=3, interpolate="monotone",
+        point=alt.OverlayMarkDef(color=NAVY, fill="white", strokeWidth=2, size=70)).encode(
+        x=x, y=alt.Y("基準予測:Q", scale=ys, title=None),
+        tooltip=[alt.Tooltip("as_of:T", title="基準日", format="%Y-%m-%d"),
+                 alt.Tooltip("基準予測:Q", title="着地見込み(万円)", format=",.0f")])
+    layers = [band, line]
+    if py_actual:
+        rule = alt.Chart(pd.DataFrame({"y": [py_actual / 1e4]})).mark_rule(
+            color=GOLD, strokeDash=[6, 4], size=2).encode(y="y:Q")
+        layers = [band, rule, line]
+    return (alt.layer(*layers).properties(height=250)
+            .configure_view(strokeWidth=0)
+            .configure_axis(grid=True, gridColor="#EDEFF3", domainColor="#E8EBF1",
+                            tickColor="#E8EBF1", labelColor="#8A94A3", labelFontSize=12))
 
 
 # ======================================================================
@@ -492,19 +576,23 @@ def render(month, snap):
         "<div class='mfc-conc'><div class='cLeft'>"
         f"<div class='cLbl'>今月着地見込み（{ym_jp}）</div>"
         f"<div class='cBig'>{manv(cur)}<span>万円</span></div>"
-        f"<div class='cV {verdict_cls}'>前年同月比 {sman(yoy)}{yoy_pct}・{beats_word}</div>"
-        "</div><div class='cRight'>"
+        "<div class='cRow'>"
+        f"<span class='cBadge {verdict_cls}'>{beats_word}</span>"
+        f"<span class='cYoY'>前年同月比 {sman(yoy)} <em>{yoy_pct}</em></span>"
+        "</div></div>"
+        "<div class='cRight'>"
         f"<div class='cItem'>前年同月<b>{man(py)}</b></div>"
         f"<div class='cItem'>保守ライン<b>{man(cons)}</b></div>"
-        f"<div class='cItem'>昨日〆進捗<b>{man(cur_td)}</b><small>前年同日 {sman(yoy_td)}{td_pct}</small></div>"
-        f"<div class='cItem'>80%レンジ<b>{r80}万円</b></div>"
+        f"<div class='cItem'>80%予測レンジ<b>{r80}<small>万円</small></b></div>"
         "</div></div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='mfc-take'><span class='k'>今日の見立て</span>"
-        f"{takeaway}"
-        "<ul><li>高単価型 自費の月内売上化 ＝ 着地の上振れ要因。</li>"
-        "<li>他曜日の来院枠・キャンセル枠を充足 ＝ 下振れ防止。</li></ul></div>",
-        unsafe_allow_html=True)
+        "<div class='mfc-act'><div class='k'>今日のアクション</div>"
+        f"<div class='lead'>{takeaway}</div>"
+        "<div class='rows'>"
+        "<div class='r'><span class='t'>自費売上化</span><span class='d'>高単価型の月内売上化を確認</span></div>"
+        "<div class='r'><span class='t'>来院充足</span><span class='d'>空き枠・キャンセル枠の再充填</span></div>"
+        "<div class='r'><span class='t'>訪問介護</span><span class='d'>入力遅れ分は月末見込みで別建て反映</span></div>"
+        "</div></div>", unsafe_allow_html=True)
 
     # ===== 昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）=====
     st.markdown('<div class="mfc-sec">昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）</div>',
@@ -526,12 +614,15 @@ def render(month, snap):
         f"<div class='big'>{manv(cur)}<span class='u'>万円</span></div>"
         f"<div class='py'>保守 {man(cons)}／前年月末 {man(py)}<br>{beats_word}</div></div>"
         "</div>", unsafe_allow_html=True)
+    cal_cls = "red" if (yoy_td is not None and yoy_td < 0) else "green"
+    biz_cls = "green" if (biz_diff is not None and biz_diff >= 0) else "red"
     st.markdown(
-        "<div class='mfc-note'>"
-        f"暦の同日は <b>当年{cur_days}／前年{py_days}診療日</b>とズレる（木曜休診）。"
-        f"同じ <b>{biz_days}診療日</b>で揃えると前年差 <b>{sman(biz_diff)}</b>{biz_pct}。"
-        "訪問・介護は入力遅れのため同日実績に含めず、月末着地で別建て反映。</div>",
-        unsafe_allow_html=True)
+        "<div class='mfc-cmp'>"
+        f"<span class='chip {cal_cls}'><span class='lbl'>暦同日</span><b>{smanv(yoy_td)}万円</b><em>{td_pct}</em></span>"
+        f"<span class='chip {biz_cls}'><span class='lbl'>同営業日</span><b>{smanv(biz_diff)}万円</b><em>{biz_pct}</em></span>"
+        f"<span class='muted'>暦同日は当年{cur_days}／前年{py_days}診療日（木曜休診）でズレるため、"
+        f"同{biz_days}診療日で揃えた<b>同営業日ベースが実力</b>。訪問・介護は月末着地で別建て。</span>"
+        "</div>", unsafe_allow_html=True)
 
     # ===== 第2階層：着地根拠 / 月末着地見込みの比較 =====
     v2ms = fnum(roll.get("v2_month_start_forecast"))
@@ -539,6 +630,19 @@ def render(month, snap):
     rproj = roll.get("reservation_projected_final_remaining")
     st.markdown('<div class="mfc-tier"><span class="n">EVIDENCE</span>着地の根拠'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
+    # ----- 日次予測の推移グラフ -----
+    _ch = trend_chart(read_history(month), py)
+    if _ch is not None:
+        st.markdown("<div class='mfc-charthead'>日次予測の推移"
+                    "<span class='sub'>予測基準日ごとの月末着地見込み（万円）</span></div>",
+                    unsafe_allow_html=True)
+        st.altair_chart(_ch, width="stretch")
+        st.markdown(
+            "<div class='mfc-clegend'>"
+            "<span class='l1'>基準予測（着地見込み）</span>"
+            "<span class='l3'>80%予測レンジ</span>"
+            f"<span class='l2'>前年同月 {man(py)}</span>"
+            "</div>", unsafe_allow_html=True)
     st.markdown('<div class="mfc-sec">月末着地見込みの比較（基準・保守・参考・前年）</div>', unsafe_allow_html=True)
     st.markdown(
         "<div class='mfc-cards4'>"
@@ -610,11 +714,11 @@ def render(month, snap):
             unsafe_allow_html=True)
 
     # ===== 第3階層：詳細分析 =====
-    st.markdown('<div class="mfc-tier"><span class="n">DETAIL</span>詳細分析'
+    st.markdown('<div class="mfc-tier"><span class="n">KPI</span>経営KPI'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
 
-    # ----- 患者数・来院系 -----
-    st.markdown('<div class="mfc-sec">患者数・来院系（当月見込み）</div>', unsafe_allow_html=True)
+    # ----- 経営KPI（来院・初診・キャンセル・患者数）-----
+    st.markdown('<div class="mfc-sec">来院・初診・キャンセル・患者数（当月見込み）</div>', unsafe_allow_html=True)
     vis = sup.get("visit") or {}
     sho = sup.get("shoshin") or {}
     pat = sup.get("patient_total") or {}
@@ -671,9 +775,9 @@ def render(month, snap):
     st.markdown(
         "<div class='mfc-cards4'>"
         + patient_card
-        + cnt_card("総来院回数", vis.get("forecast"), vis.get("prevyear"), "回", "est",
+        + cnt_card("来院回数", vis.get("forecast"), vis.get("prevyear"), "回", "est",
                    "来院回数の前年差は売上の量的な下押し。他曜日への振替・空き枠再充填で回復を図る。", "tp-n")
-        + cnt_card("初診件数", sho.get("forecast"), sho.get("prevyear"), "件", "est",
+        + cnt_card("初診", sho.get("forecast"), sho.get("prevyear"), "件", "est",
                    "初診のうち自費相談・治療移行見込みを確認し、自費売上化につなげる。", "tp-o")
         + cancel_card
         + "</div>", unsafe_allow_html=True)
@@ -684,7 +788,7 @@ def render(month, snap):
         unsafe_allow_html=True)
 
     # ----- 予約構成（折りたたみ）-----
-    with st.expander("予約構成の内訳（登録済み予約・as_of時点）", expanded=False):
+    with st.expander("予約ポートフォリオ（型別・登録済み予約）", expanded=False):
         comp = sup.get("reservation_composition") or {}
         if comp.get("available"):
             types = comp.get("types") or {}
