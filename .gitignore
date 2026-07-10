@@ -35,3 +35,5 @@ apotool_all_master.csv
 data/history/*
 !data/history/monthly_actuals.csv
 !data/history/history_meta.json
+!data/history/portfolio_monthly.csv
+!data/history/portfolio_meta.json

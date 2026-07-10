@@ -33,12 +33,12 @@ import csv
 import html as _html
 import streamlit as st
 
-# deploy-marker: history-view + main-view nav (2026-07-10b) — redeploy trigger
+# deploy-marker: portfolio view UI polish (2026-07-10d) — redeploy trigger
 
 # 本文上部に表示するビルド識別子。Cloud が古いビルドを配信していないか
 # 画面から即座に確認できるようにするための目印。サイドバーが折りたたまれて
 # いても見えるよう、ページ切替の直下に置く。
-APP_BUILD = "2026-07-10b main-view-nav"
+APP_BUILD = "2026-07-10d portfolio-ui"
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
@@ -57,12 +57,25 @@ F_HISTORY = "forecast_history.csv"
 HIST_DIR = "history"
 F_MONTHLY_ACTUALS = "monthly_actuals.csv"
 F_HISTORY_META = "history_meta.json"
+F_PORTFOLIO = "portfolio_monthly.csv"
+F_PORTFOLIO_META = "portfolio_meta.json"
 
 MONTH_RE = re.compile(r"^(\d{4})_(\d{2})$")
 ASOF_RE = re.compile(r"^(\d{4})_(\d{2})_(\d{2})$")
 
 PAGE_FORECAST = "今月の予測"
 PAGE_HISTORY = "過去実績"
+PAGE_PORTFOLIO = "売上ポートフォリオ"
+
+# 分類コード → (表示名, 色, 積み上げ順。0がグラフの最下段)
+PF_BUCKETS = [
+    ("stock", "ストック型売上", "#0B1F3A", 0),
+    ("spot", "スポット型売上", "#2F6BD6", 1),
+    ("high_value", "高単価型売上", "#B08A4E", 2),
+    ("unclassified", "混合・未分類", "#9AA3B0", 3),
+]
+PF_LABELS = [n for _, n, _, _ in PF_BUCKETS]
+PF_COLORS = [c for _, _, c, _ in PF_BUCKETS]
 
 st.set_page_config(page_title="MDC Forecast Console（日次ローリング予測）",
                    page_icon="📈", layout="wide")
@@ -484,9 +497,10 @@ def page_nav():
     """ページ切替。本文上部（タイトル直下・メタ情報の上）に描画する。
     ウィジェットは session_state['nav_page'] を唯一の正とする。"""
     st.markdown(NAV_CSS, unsafe_allow_html=True)
-    st.radio("表示する画面", [PAGE_FORECAST, PAGE_HISTORY], key="nav_page",
-             horizontal=True,
-             help="「今月の予測」は当月の着地見込み、「過去実績」は確定した過去の実績です。")
+    st.radio("表示する画面", [PAGE_FORECAST, PAGE_HISTORY, PAGE_PORTFOLIO],
+             key="nav_page", horizontal=True,
+             help="「今月の予測」は当月の着地見込み、「過去実績」は確定した過去の実績、"
+                  "「売上ポートフォリオ」は売上構造の内訳です。")
     st.markdown(f"<div class='mdc-navnote'>build: {_html.escape(APP_BUILD)}</div>",
                 unsafe_allow_html=True)
 
@@ -1324,6 +1338,562 @@ def render_history(nav=None):
 
 
 # ======================================================================
+# 売上ポートフォリオ
+#   data/history/portfolio_monthly.csv（月次×4分類の集計済み金額）だけを読む。
+# ======================================================================
+@st.cache_data(show_spinner=False)
+def _load_portfolio(_mtime):
+    import pandas as pd
+    df = pd.read_csv(hist_path(F_PORTFOLIO), encoding="utf-8-sig")
+    return df.sort_values(["年月", "分類コード"]).reset_index(drop=True)
+
+
+def read_portfolio():
+    p = hist_path(F_PORTFOLIO)
+    if not os.path.isfile(p):
+        return None
+    try:
+        return _load_portfolio(os.path.getmtime(p))
+    except Exception:
+        return None
+
+
+def pf_pivot(df):
+    """年月×表示分類名 の売上金額テーブル。"""
+    p = df.pivot(index="年月", columns="表示分類名", values="売上金額")
+    return p.reindex(columns=PF_LABELS).fillna(0)
+
+
+def pf_cv(wide):
+    """月次変動係数（標準偏差 / 平均 × 100）。2か月以下では算出しない。"""
+    if len(wide) < 3:
+        return None
+    return (wide.std() / wide.mean() * 100)
+
+
+def chart_pf_stack(wide):
+    """分類別の積み上げ売上推移。ストック型を最下段に固定。"""
+    import pandas as pd
+    import altair as alt
+    d = wide.reset_index()
+    d["月"] = _ymdate(d["年月"])
+    long = d.melt(id_vars="月", value_vars=PF_LABELS, var_name="分類", value_name="売上")
+    long["売上"] = long["売上"] / 1e4
+    long["順"] = long["分類"].map({n: o for _, n, _, o in PF_BUCKETS})
+    ch = alt.Chart(long).mark_bar().encode(
+        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55)),
+        y=alt.Y("売上:Q", title=None, stack="zero"),
+        color=alt.Color("分類:N", sort=PF_LABELS,
+                        scale=alt.Scale(domain=PF_LABELS, range=PF_COLORS),
+                        legend=alt.Legend(orient="top", title=None, direction="horizontal")),
+        order=alt.Order("順:Q", sort="descending"),
+        tooltip=[alt.Tooltip("月:T", title="年月", format="%Y-%m"),
+                 alt.Tooltip("分類:N"), alt.Tooltip("売上:Q", title="売上(万円)", format=",.0f")])
+    return (ch.properties(height=280).configure_view(strokeWidth=0).configure_axis(**AX))
+
+
+def chart_pf_donut(shares, center_label, center_value):
+    """選択期間の構成比（ドーナツ）。中央に結論の数値を置く。"""
+    import pandas as pd
+    import altair as alt
+    d = pd.DataFrame({"分類": shares.index, "構成比": shares.values})
+    arc = alt.Chart(d).mark_arc(innerRadius=76, outerRadius=112, stroke="#fff",
+                                strokeWidth=2).encode(
+        theta=alt.Theta("構成比:Q", stack=True),
+        color=alt.Color("分類:N", sort=PF_LABELS,
+                        scale=alt.Scale(domain=PF_LABELS, range=PF_COLORS), legend=None),
+        order=alt.Order("構成比:Q", sort="descending"),
+        tooltip=[alt.Tooltip("分類:N"), alt.Tooltip("構成比:Q", title="構成比(%)", format=".1f")])
+    big = alt.Chart(pd.DataFrame({"t": [center_value]})).mark_text(
+        dy=-6, fontSize=32, fontWeight="bold", color="#0B1F3A").encode(text="t:N")
+    cap = alt.Chart(pd.DataFrame({"t": [center_label]})).mark_text(
+        dy=22, fontSize=11.5, fontWeight="bold", color="#8A94A3").encode(text="t:N")
+    return (alt.layer(arc, big, cap).properties(height=262)
+            .configure_view(strokeWidth=0))
+
+
+def chart_pf_matrix(shares, cvs, amounts):
+    """安定性マトリクス。横軸=構成比、縦軸=月次変動係数。この画面の主役。"""
+    import pandas as pd
+    import altair as alt
+    d = pd.DataFrame({"分類": shares.index, "構成比": shares.values,
+                      "変動係数": [cvs[k] for k in shares.index],
+                      "売上": [amounts[k] for k in shares.index]})
+    # 軸の上限に余裕を持たせ、円の上に置くラベルが枠外へ切れないようにする。
+    xmax = max(58.0, float(d["構成比"].max()) * 1.28)
+    ymax = max(55.0, float(d["変動係数"].max()) * 1.32)
+
+    base = alt.Chart(d)
+    xenc = alt.X("構成比:Q", title="売上構成比（％）　→　大きいほど売上に効く",
+                 scale=alt.Scale(domain=[0, xmax], nice=False))
+    yenc = alt.Y("変動係数:Q", title="月次変動係数（％）　→　大きいほど不安定",
+                 scale=alt.Scale(domain=[0, ymax], nice=False))
+    # 平均線で4象限に区切る（左下＝大きく安定、右上＝大きく不安定）
+    hx = alt.Chart(pd.DataFrame({"v": [float(d["構成比"].mean())]})).mark_rule(
+        color="#E3E7EE", strokeDash=[4, 4]).encode(x="v:Q")
+    hy = alt.Chart(pd.DataFrame({"v": [float(d["変動係数"].mean())]})).mark_rule(
+        color="#E3E7EE", strokeDash=[4, 4]).encode(y="v:Q")
+    pts = base.mark_circle(opacity=.88, stroke="#fff", strokeWidth=2).encode(
+        x=xenc, y=yenc,
+        size=alt.Size("売上:Q", scale=alt.Scale(range=[420, 2600]), legend=None),
+        color=alt.Color("分類:N", sort=PF_LABELS,
+                        scale=alt.Scale(domain=PF_LABELS, range=PF_COLORS), legend=None),
+        tooltip=[alt.Tooltip("分類:N"),
+                 alt.Tooltip("構成比:Q", title="構成比(%)", format=".1f"),
+                 alt.Tooltip("変動係数:Q", title="変動係数(%)", format=".1f"),
+                 alt.Tooltip("売上:Q", title="売上(円)", format=",.0f")])
+    # dx / dy は mark のプロパティ。encode のチャネルではない。
+    name = base.mark_text(fontSize=12.5, fontWeight="bold", color="#0B1F3A", dy=-36).encode(
+        x=xenc, y=yenc, text="分類:N")
+    val = base.mark_text(fontSize=11, color="#8A94A3", dy=-21).encode(
+        x=xenc, y=yenc, text=alt.Text("変動係数:Q", format=".1f"))
+    return (alt.layer(hx, hy, pts, name, val).properties(height=380)
+            .configure_view(strokeWidth=0)
+            .configure_axis(grid=True, gridColor="#F1F3F6", domainColor="#E8EBF1",
+                            tickColor="#E8EBF1", labelColor="#8A94A3", labelFontSize=11.5,
+                            titleColor="#8A94A3", titleFontSize=11.5, titleFontWeight="normal"))
+
+
+# ======================================================================
+# 売上ポートフォリオ画面 専用CSS
+#   この画面を描画するときだけ注入する。他ページには一切適用されない
+#   （Streamlit は1リクエストで1ページしか描画しないため）。
+# ======================================================================
+PF_CSS = """
+<style>
+/* ---- 余白の基準を締める ---- */
+.block-container{padding-top:1.9rem !important;padding-bottom:3rem;}
+[data-testid="stVerticalBlock"]{gap:.62rem;}
+.mfc-title{font-size:33px;margin:0 0 5px;letter-spacing:-.6px;}
+.mfc-sub{font-size:13.5px;line-height:1.6;max-width:700px;margin:0 0 6px;}
+[data-testid="stRadio"]{margin:10px 0 10px !important;padding:10px 16px 8px !important;}
+.mdc-navnote{margin:-4px 2px 12px !important;}
+
+/* ---- セクション見出しを小さく、間隔を詰める ---- */
+.mfc-tier{margin:26px 0 10px;font-size:21px;letter-spacing:-.3px;}
+.mfc-tier .n{font-size:10px;letter-spacing:2.2px;margin-bottom:5px;}
+
+/* ---- Streamlit の枠付きコンテナを「白カード」にする ---- */
+[data-testid="stVerticalBlockBorderWrapper"]{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;
+  box-shadow:var(--shadow);padding:15px 18px 11px;
+}
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"]{gap:.35rem;}
+
+/* ---- セレクタの標準感を減らす ---- */
+[data-testid="stSelectbox"]{margin-bottom:0;}
+[data-testid="stSelectbox"] label{padding-bottom:0 !important;margin-bottom:2px !important;}
+[data-testid="stSelectbox"] label p{
+  font-size:10px !important;font-weight:800 !important;letter-spacing:1.3px;
+  color:var(--gold) !important;text-transform:uppercase;margin:0 !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"]>div{
+  border-radius:10px;border-color:#E3E7EE;min-height:38px;background:#FBFCFD;
+  font-weight:700;color:var(--navy);
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"]>div:hover{border-color:var(--gold2);}
+
+/* ---- 期間カード ---- */
+.pf-pcard-h{font-size:12.5px;font-weight:800;color:var(--navy);margin:0 0 8px;letter-spacing:.2px;}
+.pf-pcard-h span{font-size:10px;font-weight:800;letter-spacing:2px;color:var(--gold);
+  text-transform:uppercase;margin-right:10px;}
+.pf-pnote{font-size:11px;color:var(--faint);margin:9px 2px 0;line-height:1.45;}
+.pf-pmeta{font-size:12.5px;color:var(--muted);margin:8px 2px 2px;padding-top:9px;
+  border-top:1px dashed #E8EBF1;line-height:1.5;}
+.pf-pmeta b{color:var(--navy);font-weight:800;}
+
+/* ---- ヒーロー（結論） ---- */
+.pf-hero{display:grid;grid-template-columns:1.35fr 1fr;gap:30px;align-items:center;
+  background:radial-gradient(120% 150% at 90% 4%,rgba(203,169,104,.17),transparent 44%),
+    linear-gradient(155deg,#0a1b31 0%,#122f57 62%,#16386c 100%);
+  border-radius:18px;padding:26px 32px;color:#fff;margin:16px 0 6px;
+  box-shadow:0 22px 50px -26px rgba(11,31,58,.66);}
+.pf-hero .k{font-size:10px;font-weight:800;letter-spacing:2.4px;color:var(--gold2);
+  text-transform:uppercase;margin-bottom:9px;}
+.pf-hero .big{font-size:58px;font-weight:800;line-height:.98;letter-spacing:-2px;
+  font-variant-numeric:tabular-nums;}
+.pf-hero .big span{font-size:24px;margin-left:5px;color:#c7d2e0;font-weight:700;letter-spacing:0;}
+.pf-hero .cap{font-size:17px;font-weight:800;margin:9px 0 8px;letter-spacing:-.2px;}
+.pf-hero .sub{font-size:12.5px;color:#a9b5c6;line-height:1.6;max-width:380px;}
+.pf-hero .r{display:grid;gap:13px;border-left:1px solid rgba(255,255,255,.13);padding-left:28px;}
+.pf-hero .it{font-size:11.5px;color:#a9b5c6;line-height:1.3;}
+.pf-hero .it b{display:block;font-size:22px;color:#fff;font-weight:800;margin-top:2px;
+  letter-spacing:-.4px;font-variant-numeric:tabular-nums;}
+.pf-lead{font-size:14px;color:var(--ink);font-weight:600;line-height:1.6;
+  margin:12px 2px 2px;padding-left:12px;border-left:3px solid var(--gold);}
+.pf-lead b{color:var(--navy);font-weight:800;}
+
+/* ---- KPIカード ---- */
+.pf-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-top:14px;}
+.pf-card{background:var(--card);border:1px solid var(--line);border-radius:13px;
+  padding:14px 15px 12px;box-shadow:var(--shadow);display:flex;flex-direction:column;
+  justify-content:space-between;min-height:104px;border-top:2px solid transparent;}
+.pf-card .lb{font-size:11.5px;font-weight:800;color:var(--muted);letter-spacing:.2px;}
+.pf-card .val{font-size:31px;font-weight:800;color:var(--navy);line-height:1;
+  margin:9px 0 7px;letter-spacing:-.9px;font-variant-numeric:tabular-nums;}
+.pf-card .val u{text-decoration:none;font-size:12.5px;color:var(--faint);margin-left:3px;
+  font-weight:700;letter-spacing:0;}
+.pf-card .sub{font-size:11px;color:var(--faint);line-height:1.4;}
+.pf-card .sub b{color:var(--navy);font-weight:700;}
+.pf-card.sm{min-height:92px;padding:12px 14px 10px;}
+.pf-card.sm .val{font-size:25px;margin:7px 0 6px;}
+.pf-card.a-navy{border-top-color:var(--navy);}
+.pf-card.a-blue{border-top-color:var(--blue);}
+.pf-card.a-gold{border-top-color:var(--gold);}
+.pf-card.a-gray{border-top-color:#CFD6E1;}
+.pf-card.a-green{border-top-color:var(--green);}
+
+/* ---- グラフカードの見出し ---- */
+.pf-ch{margin:0 0 2px;}
+.pf-ch .t{font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.1px;}
+.pf-ch .s{font-size:11.5px;color:var(--faint);margin-top:2px;line-height:1.45;}
+[data-testid="stVegaLiteChart"]{background:transparent;border:none;box-shadow:none;
+  padding:2px 0 0;}
+
+/* ---- 構成比チップ ---- */
+.pf-chip{display:flex;align-items:center;justify-content:space-between;
+  border:1px solid var(--line);border-radius:11px;padding:10px 13px;margin-bottom:9px;
+  background:#FBFCFD;}
+.pf-chip .n{font-size:12.5px;font-weight:700;color:var(--navy);display:flex;align-items:center;}
+.pf-chip .n i{width:9px;height:9px;border-radius:50%;margin-right:9px;display:inline-block;}
+.pf-chip .v{text-align:right;}
+.pf-chip .v b{font-size:17px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;}
+.pf-chip .v small{display:block;font-size:11px;color:var(--faint);font-weight:600;}
+
+/* ---- 安定性マトリクスの解説 ---- */
+.pf-mx{font-size:13px;color:var(--muted);line-height:1.65;margin:6px 2px 0;
+  padding-top:10px;border-top:1px dashed #E8EBF1;}
+.pf-mx b{color:var(--navy);font-weight:800;}
+
+/* ---- テーブル・ボタン ---- */
+[data-testid="stDataFrame"]{border-radius:13px;overflow:hidden;border:1px solid var(--line);}
+[data-testid="stDownloadButton"] button{border-radius:10px;border:1px solid var(--line);
+  font-weight:700;color:var(--navy);background:#FBFCFD;}
+[data-testid="stDownloadButton"] button:hover{border-color:var(--gold2);color:var(--gold);}
+[data-testid="stAlert"]{border-radius:12px;font-size:13px;}
+.mfc-note{font-size:12.5px;line-height:1.7;margin-top:14px;}
+
+@media (max-width:900px){
+  .pf-hero{grid-template-columns:1fr;gap:20px;padding:22px 22px;}
+  .pf-hero .big{font-size:46px;}
+  .pf-hero .r{border-left:none;border-top:1px solid rgba(255,255,255,.13);
+    padding-left:0;padding-top:16px;grid-template-columns:1fr 1fr;}
+  .pf-grid{grid-template-columns:1fr 1fr;}
+}
+</style>
+"""
+
+PF_MODES = ["プリセット", "単月", "四半期", "任意期間"]
+PF_PRESETS = ["最新確定月", "直近3か月", "直近6か月", "直近12か月", "直近24か月",
+              "今年度累計", "昨年度", "全期間"]
+PF_QUARTERS = ["第1四半期（4月〜6月）", "第2四半期（7月〜9月）",
+               "第3四半期（10月〜12月）", "第4四半期（1月〜3月）"]
+PF_CLOSED_NOTE = ("当月の最新状況は『今月の予測』画面で確認してください。"
+                  "この画面は確定月のみを対象にしています。")
+
+
+def ym_jp(ym):
+    """'2026-06' -> '2026年6月'"""
+    y, m = ym.split("-")
+    return f"{y}年{int(m)}月"
+
+
+def ym_range_jp(lo, hi):
+    """'2026-04','2026-06' -> '2026年4月〜6月'（年をまたぐ場合は両方に年を付ける）"""
+    if lo[:4] == hi[:4]:
+        return f"{ym_jp(lo)}〜{int(hi[5:])}月"
+    return f"{ym_jp(lo)}〜{ym_jp(hi)}"
+
+
+def fiscal_years(months):
+    """収録データに存在する年度を新しい順に返す。"""
+    return sorted({fiscal_year_of(m) for m in months}, reverse=True)
+
+
+def quarter_range(fy, q_index):
+    """年度 fy の第 q_index+1 四半期の (開始年月, 終了年月)。年度は4月始まり。"""
+    starts = [(fy, 4), (fy, 7), (fy, 10), (fy + 1, 1)]
+    y, m = starts[q_index]
+    return f"{y}-{m:02d}", f"{y}-{m + 2:02d}"
+
+
+def _tail(months, n):
+    return (months[-n] if len(months) >= n else months[0]), months[-1]
+
+
+def pf_select_period(months):
+    """期間選択UI。(開始年月, 終了年月, 表示ラベル) を返す。"""
+    c0, c1, c2 = st.columns([1, 1.12, 1.12], gap="small")
+    with c0:
+        mode = st.selectbox("期間の選び方", PF_MODES, index=0, key="pf_mode")
+
+    if mode == "プリセット":
+        with c1:
+            p = st.selectbox("プリセット", PF_PRESETS, index=3, key="pf_preset")
+        latest_fy = fiscal_year_of(months[-1])
+        if p == "最新確定月":
+            lo = hi = months[-1]
+            return lo, hi, f"最新確定月 {ym_jp(hi)}"
+        if p.startswith("直近"):
+            n = int(re.sub(r"\D", "", p))
+            lo, hi = _tail(months, n)
+            return lo, hi, f"{p}（{ym_range_jp(lo, hi)}）"
+        if p == "今年度累計":
+            lo, hi = fiscal_range(latest_fy)
+            return lo, hi, f"{latest_fy}年度累計"
+        if p == "昨年度":
+            lo, hi = fiscal_range(latest_fy - 1)
+            return lo, hi, f"{latest_fy - 1}年度"
+        return months[0], months[-1], f"全期間（{ym_range_jp(months[0], months[-1])}）"
+
+    if mode == "単月":
+        with c1:
+            m = st.selectbox("対象月", list(reversed(months)), index=0, key="pf_month")
+        return m, m, f"単月 {ym_jp(m)}"
+
+    if mode == "四半期":
+        fys = fiscal_years(months)
+        with c1:
+            fy = st.selectbox("年度", fys, index=0, key="pf_fy",
+                              format_func=lambda y: f"{y}年度")
+        with c2:
+            qi = PF_QUARTERS.index(st.selectbox("四半期", PF_QUARTERS, index=0, key="pf_quarter"))
+        lo, hi = quarter_range(fy, qi)
+        qname = PF_QUARTERS[qi].split("（")[0]
+        return lo, hi, f"{fy}年度 {qname}（{ym_range_jp(lo, hi)}）"
+
+    # 任意期間
+    with c1:
+        s = st.selectbox("開始年月", months, index=max(0, len(months) - 12), key="pf_from")
+    with c2:
+        e = st.selectbox("終了年月", months, index=len(months) - 1, key="pf_to")
+    if s > e:
+        s, e = e, s  # 逆順は自動で入れ替える
+    return s, e, f"任意期間（{ym_range_jp(s, e)}）"
+
+
+def pf_card(lb, val, unit, sub, accent="a-gray", small=False):
+    u = f"<u>{unit}</u>" if unit else ""
+    return (f"<div class='pf-card {accent}{' sm' if small else ''}'>"
+            f"<div class='lb'>{lb}</div>"
+            f"<div class='val'>{val}{u}</div>"
+            f"<div class='sub'>{sub}</div></div>")
+
+
+def render_portfolio(nav=None):
+    st.markdown(CSS, unsafe_allow_html=True)
+    st.markdown(PF_CSS, unsafe_allow_html=True)
+    df = read_portfolio()
+
+    st.markdown(
+        "<div class='mfc-title'>MDC Forecast Console"
+        "<span class='mfc-vchip'>Portfolio</span></div>"
+        "<div class='mfc-sub'>この医院の売上が、安定収益なのか、都度獲得型なのか、"
+        "高単価に依存しているのかを見る画面です。確定した月次実績のみを使っています。</div>",
+        unsafe_allow_html=True)
+
+    if nav:
+        nav()
+
+    if df is None or df.empty:
+        st.warning("売上ポートフォリオのデータがありません。"
+                   "ローカルで scripts/build_portfolio_aggregates.py を実行し、"
+                   "data/history/portfolio_monthly.csv を配置してください。")
+        return
+
+    meta = read_json(hist_path(F_PORTFOLIO_META)) or {}
+    wide_all = pf_pivot(df)
+    months = list(wide_all.index)
+
+    # ---- 期間選択（1枚のカードにまとめる） ----
+    with st.container(border=True):
+        st.markdown("<div class='pf-pcard-h'><span>Period</span>期間を選ぶ</div>",
+                    unsafe_allow_html=True)
+        lo, hi, plabel = pf_select_period(months)
+        st.markdown(f"<div class='pf-pnote'>{_html.escape(PF_CLOSED_NOTE)}</div>",
+                    unsafe_allow_html=True)
+
+        wide = wide_all.loc[(wide_all.index >= lo) & (wide_all.index <= hi)]
+        if wide.empty:
+            st.warning(f"選択した期間（{ym_jp(lo)}〜{ym_jp(hi)}）に該当する確定月がありません。"
+                       f"収録範囲は {ym_jp(months[0])}〜{ym_jp(months[-1])} です。"
+                       "まだ締めが終わっていない期間か、収録前の期間です。")
+            return
+
+        a_lo, a_hi = wide.index[0], wide.index[-1]
+        partial = (a_lo != lo) or (a_hi != hi)
+        st.markdown(f"<div class='pf-pmeta'>対象期間 <b>{plabel}</b>"
+                    f"　·　確定月 {len(wide)}か月（{a_lo} 〜 {a_hi}）"
+                    f"　·　収録範囲 {months[0]} 〜 {months[-1]}</div>",
+                    unsafe_allow_html=True)
+        if partial:
+            st.info(f"選択した期間のうち、確定している {len(wide)} か月"
+                    f"（{ym_jp(a_lo)}〜{ym_jp(a_hi)}）だけを集計しています。")
+
+    amounts = wide.sum()
+    total = float(amounts.sum())
+    shares = amounts / total * 100
+    cvs = pf_cv(wide)
+
+    # ---- A. 結論（ヒーロー） ----
+    stock_pct = shares["ストック型売上"]
+    hv_pct = shares["高単価型売上"]
+    hv_m = wide["高単価型売上"]
+    # 振れ幅は2か月以上ないと意味を持たない（単月では常に1.00倍になる）
+    swing = (hv_m.max() / hv_m.min()) if (len(wide) >= 2 and hv_m.min() > 0) else None
+    driver = cvs.drop("混合・未分類").idxmax() if cvs is not None else "高単価型売上"
+
+    if len(wide) == 1:
+        lead = (f"{ym_jp(a_hi)}は、売上の <b>{stock_pct:.1f}%</b> がストック型、"
+                f"高単価型が <b>{hv_pct:.1f}%</b> でした。")
+    elif driver != "高単価型売上":
+        lead = (f"売上の <b>{stock_pct:.1f}%</b> がストック型。"
+                f"この期間は <b>{driver}</b> が最も大きく振れています。")
+    else:
+        lead = (f"売上の <b>{stock_pct:.1f}%</b> がストック型。"
+                f"高単価型が <b>{hv_pct:.1f}%</b> を占め、月次変動を押し上げる構造です。")
+
+    st.markdown(
+        "<div class='pf-hero'>"
+        "<div class='l'>"
+        "<div class='k'>Conclusion</div>"
+        f"<div class='big'>{stock_pct:.1f}<span>%</span></div>"
+        "<div class='cap'>がストック型売上</div>"
+        "<div class='sub'>継続管理と訪問・介護による反復収益。"
+        "この層が厚いほど、売上の土台は崩れにくくなります。</div>"
+        "</div>"
+        "<div class='r'>"
+        f"<div class='it'>期間の総売上<b>{manv(total)}<span style='font-size:12px'> 万円</span></b></div>"
+        f"<div class='it'>月あたり平均<b>{manv(total / len(wide))}"
+        "<span style='font-size:12px'> 万円</span></b></div>"
+        f"<div class='it'>高単価依存度<b>{hv_pct:.1f}"
+        "<span style='font-size:12px'> %</span></b></div>"
+        "</div></div>"
+        f"<div class='pf-lead'>{lead}</div>", unsafe_allow_html=True)
+
+    # ---- B. KPIカード ----
+    row1 = "".join([
+        pf_card("ストック型売上", manv(amounts["ストック型売上"]), "万円",
+                f"構成比 <b>{shares['ストック型売上']:.1f}%</b>", "a-navy"),
+        pf_card("スポット型売上", manv(amounts["スポット型売上"]), "万円",
+                f"構成比 <b>{shares['スポット型売上']:.1f}%</b>", "a-blue"),
+        pf_card("高単価型売上", manv(amounts["高単価型売上"]), "万円",
+                f"構成比 <b>{shares['高単価型売上']:.1f}%</b>", "a-gold"),
+        pf_card("混合・未分類", manv(amounts["混合・未分類"]), "万円",
+                f"構成比 <b>{shares['混合・未分類']:.1f}%</b>", "a-gray"),
+    ])
+    cv_na = "変動係数は3か月以上で算出します"
+    row2 = "".join([
+        pf_card("ストック比率", f"{stock_pct:.1f}", "%",
+                f"月次変動係数 <b>{cvs['ストック型売上']:.1f}%</b>" if cvs is not None else cv_na,
+                "a-green", small=True),
+        pf_card("高単価依存度", f"{hv_pct:.1f}", "%",
+                f"月次変動係数 <b>{cvs['高単価型売上']:.1f}%</b>" if cvs is not None else cv_na,
+                "a-gold", small=True),
+        pf_card("高単価型の振れ幅", f"{swing:.2f}" if swing else "—", "倍",
+                (f"最小 <b>{manv(hv_m.min())}</b> 〜 最大 <b>{manv(hv_m.max())}</b> 万円"
+                 if swing else "2か月以上の期間で算出します"), "a-gold", small=True),
+        pf_card("未分類率", f"{shares['混合・未分類']:.1f}", "%",
+                "分類辞書で判定できない売上・予約外来院・残差", "a-gray", small=True),
+    ])
+    st.markdown(f"<div class='pf-grid'>{row1}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='pf-grid'>{row2}</div>", unsafe_allow_html=True)
+
+    # ---- C. 月次推移（直近24か月） ----
+    st.markdown("<div class='mfc-tier'><span class='n'>Trend</span>売上構造の推移</div>",
+                unsafe_allow_html=True)
+    trend = wide_all.tail(24)
+    with st.container(border=True):
+        st.markdown("<div class='pf-ch'><div class='t'>分類別の積み上げ売上</div>"
+                    f"<div class='s'>直近24か月（{trend.index[0]} 〜 {trend.index[-1]}）"
+                    "・ストック型が最下段・単位：万円</div></div>", unsafe_allow_html=True)
+        st.altair_chart(chart_pf_stack(trend), width="stretch")
+
+    # ---- D. 構成比 ----
+    st.markdown("<div class='mfc-tier'><span class='n'>Mix</span>選択期間の構成比</div>",
+                unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("<div class='pf-ch'><div class='t'>分類別の構成比</div>"
+                    f"<div class='s'>{a_lo} 〜 {a_hi}（{len(wide)}か月）</div></div>",
+                    unsafe_allow_html=True)
+        c1, c2 = st.columns([1.1, 1], gap="medium")
+        with c1:
+            st.altair_chart(chart_pf_donut(shares, "ストック型売上", f"{stock_pct:.1f}%"),
+                            width="stretch")
+        with c2:
+            chips = "".join(
+                f"<div class='pf-chip'><div class='n'>"
+                f"<i style='background:{col}'></i>{lb}</div>"
+                f"<div class='v'><b>{shares[lb]:.1f}%</b>"
+                f"<small>{manv(amounts[lb])}万円</small></div></div>"
+                for (_, lb, col, _) in PF_BUCKETS)
+            st.markdown(f"<div style='margin-top:22px;'>{chips}</div>", unsafe_allow_html=True)
+
+    # ---- E. 安定性マトリクス（主役） ----
+    st.markdown("<div class='mfc-tier'><span class='n'>Stability</span>"
+                "安定性マトリクス｜収益の質</div>", unsafe_allow_html=True)
+    if cvs is None:
+        st.info(f"変動係数の算出には3か月以上が必要です（現在 {len(wide)} か月）。"
+                "期間を広げると安定性マトリクスが表示されます。")
+    else:
+        with st.container(border=True):
+            st.markdown("<div class='pf-ch'><div class='t'>構成比 × 月次変動係数</div>"
+                        "<div class='s'>円の大きさは売上金額。破線は4分類の平均。"
+                        "左下＝大きく安定、右上＝大きく不安定。</div></div>",
+                        unsafe_allow_html=True)
+            st.altair_chart(chart_pf_matrix(shares, cvs, amounts), width="stretch")
+            ratio = cvs["高単価型売上"] / max(cvs["ストック型売上"], 0.1)
+            st.markdown(
+                f"<div class='pf-mx'><b>ストック型は安定した土台、"
+                f"高単価型は売上を押し上げるが月次変動も大きい。</b><br>"
+                f"ストック型は構成比 <b>{stock_pct:.1f}%</b> に対し変動係数 "
+                f"<b>{cvs['ストック型売上']:.1f}%</b>。高単価型は構成比 <b>{hv_pct:.1f}%</b> に対し "
+                f"<b>{cvs['高単価型売上']:.1f}%</b> で、<b>{ratio:.1f}倍</b> 振れます。"
+                "土台をストック型が支え、振れ幅を高単価型が生む構造です。</div>",
+                unsafe_allow_html=True)
+
+    # ---- F. 月次テーブル ----
+    st.markdown("<div class='mfc-tier'><span class='n'>Table</span>月次の分類別実績</div>",
+                unsafe_allow_html=True)
+    import pandas as pd
+    sub = df[(df["年月"] >= a_lo) & (df["年月"] <= a_hi)]
+    amt = sub.pivot(index="年月", columns="表示分類名", values="売上金額").reindex(columns=PF_LABELS)
+    shr = sub.pivot(index="年月", columns="表示分類名", values="売上構成比").reindex(columns=PF_LABELS)
+    show = pd.concat([amt.add_suffix("(円)"), shr.add_suffix("(%)")], axis=1)
+    show.insert(0, "月間総売上", sub.groupby("年月")["月間総売上"].first())
+    show = show.sort_index(ascending=False).reset_index()
+    with st.container(border=True):
+        st.dataframe(show, width="stretch", hide_index=True, height=360)
+        st.download_button("この期間のポートフォリオをCSVでダウンロード",
+                           data=sub.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"mdc_portfolio_{a_lo}_{a_hi}.csv",
+                           mime="text/csv", width="stretch")
+
+    # ---- 注記 ----
+    ap = meta.get("按分方式", {}) or {}
+    learned = ap.get("学習値", {}) or {}
+    learned_txt = "／".join(f"{k} {v:,}円" for k, v in learned.items())
+    st.markdown(
+        "<div class='mfc-note'><b>分類の定義</b>　"
+        "ストック型＝継続管理型（検診・メンテ等の定期来院）＋訪問診療・介護。"
+        "スポット型＝都度治療型。高単価型＝補綴・自費中心。"
+        "混合・未分類＝分類辞書で判定できないもの、予約を伴わない来院、突合の残差。<br>"
+        f"<b>按分方法</b>　同じ来院日に複数の分類が混在する場合、"
+        f"{ap.get('名称', '想定売上加重按分')}で分解しています"
+        + (f"（1予約あたり売上の学習値：{learned_txt}）。" if learned_txt else "。") +
+        "分類ごとの金額は<b>推定値</b>であり、確定した内訳ではありません。"
+        "各月の分類合計はレセコンの月間総売上と一致します。<br>"
+        f"<b>対象期間</b>　{PF_CLOSED_NOTE}<br>"
+        "<b>個人情報</b>　本データは月次に集計済みで、個人または担当者を識別しうる項目は"
+        "一切含みません。</div>", unsafe_allow_html=True)
+
+    if meta.get("生成日時"):
+        st.caption(f"集計データ生成日時：{meta.get('生成日時')}"
+                   f"｜収録 {meta.get('収録開始年月')} 〜 {meta.get('収録終了年月')}"
+                   f"（{meta.get('収録月数')}か月）")
+
+
+# ======================================================================
 # エントリポイント
 # ======================================================================
 if check_password():
@@ -1363,16 +1933,23 @@ if check_password():
                         st.caption(f"最新基準日：{latest.get('latest_as_of_date')}")
                 else:
                     st.warning("この対象月にスナップショットがありません。")
-        else:
+        elif page == PAGE_HISTORY:
             st.caption("過去実績（確定値）・閲覧専用")
             hmeta = read_json(hist_path(F_HISTORY_META)) or {}
             if hmeta.get("収録開始年月"):
                 st.caption(f"収録：{hmeta['収録開始年月']} 〜 {hmeta['収録終了年月']}")
+        else:
+            st.caption("売上ポートフォリオ（確定値）・閲覧専用")
+            pmeta = read_json(hist_path(F_PORTFOLIO_META)) or {}
+            if pmeta.get("収録開始年月"):
+                st.caption(f"収録：{pmeta['収録開始年月']} 〜 {pmeta['収録終了年月']}")
 
         st.caption("予測は毎日ローカルで自動更新し、集計済みの結果のみをクラウドへ反映します。"
                    "個人情報・患者単位データは一切含みません。")
 
-    if page == PAGE_HISTORY:
+    if page == PAGE_PORTFOLIO:
+        render_portfolio(nav=page_nav)
+    elif page == PAGE_HISTORY:
         render_history(nav=page_nav)
     elif not months:
         st.markdown('<div style="font-size:29px;font-weight:800;color:#0B1F3A;">'
