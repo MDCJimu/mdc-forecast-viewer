@@ -33,7 +33,11 @@ import csv
 import html as _html
 import streamlit as st
 
-# deploy-marker: visit-care + reservation-growth (as_of 2026-07-06) — redeploy trigger
+# deploy-marker: history-view + sidebar nav (2026-07-10) — redeploy trigger
+
+# サイドバーに表示するビルド識別子。Cloud が古いビルドを配信していないか
+# 画面から即座に確認できるようにするための目印。
+APP_BUILD = "2026-07-10 history-view-nav"
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
@@ -425,6 +429,45 @@ hr{display:none;}
   .mfc-act .rows{grid-template-columns:1fr;}
 }
 @media (max-width:560px){.mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr;}}
+</style>
+"""
+
+
+# ======================================================================
+# ページ切替（サイドバー最上部）専用CSS
+#   本体CSSには radio を隠すルールは無いが、Streamlit 本体や将来の追記で
+#   選択肢が消えることを防ぐため、ここで明示的に可視化を固定する。
+#   本体CSS（CSS 定数）とは独立して、サイドバー描画の直前に注入する。
+# ======================================================================
+NAV_CSS = """
+<style>
+[data-testid="stSidebar"] [data-testid="stRadio"]{
+  display:block !important; visibility:visible !important; opacity:1 !important;
+  height:auto !important; overflow:visible !important;
+  background:#F7F8FA; border:1px solid #E8EBF1; border-left:3px solid #B08A4E;
+  border-radius:12px; padding:12px 14px 10px; margin:4px 0 16px;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label{
+  visibility:visible !important; opacity:1 !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] p{
+  font-size:11px !important; font-weight:800 !important; letter-spacing:1.6px;
+  color:#B08A4E !important; text-transform:uppercase; margin-bottom:8px !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"]{
+  display:flex !important; flex-direction:column !important; gap:6px;
+  visibility:visible !important; opacity:1 !important; height:auto !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label{
+  display:flex !important; align-items:center; margin:0 !important; padding:3px 0;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] p{
+  font-size:14.5px !important; font-weight:700 !important; color:#0B1F3A !important;
+  visibility:visible !important; opacity:1 !important;
+}
+[data-testid="stSidebar"] .mdc-build{
+  font-size:10.5px; color:#9AA3B0; letter-spacing:.3px; margin-top:18px;
+}
 </style>
 """
 
@@ -1264,10 +1307,12 @@ if check_password():
 
     with st.sidebar:
         st.markdown("### MDC Forecast Console")
+        # ページ切替より前に注入する。本体CSSの hr{display:none} で区切り線が
+        # 消えるため、区切りは NAV_CSS 側の枠線で表現する。
+        st.markdown(NAV_CSS, unsafe_allow_html=True)
         page = st.radio("表示する画面", [PAGE_FORECAST, PAGE_HISTORY], index=0,
                         key="nav_page",
                         help="「今月の予測」は当月の着地見込み、「過去実績」は確定した過去の実績です。")
-        st.markdown("---")
 
         if page == PAGE_FORECAST:
             st.caption("日次ローリング予測・閲覧専用")
@@ -1298,6 +1343,8 @@ if check_password():
 
         st.caption("予測は毎日ローカルで自動更新し、集計済みの結果のみをクラウドへ反映します。"
                    "個人情報・患者単位データは一切含みません。")
+        st.markdown(f"<div class='mdc-build'>build: {_html.escape(APP_BUILD)}</div>",
+                    unsafe_allow_html=True)
 
     if page == PAGE_HISTORY:
         render_history()
