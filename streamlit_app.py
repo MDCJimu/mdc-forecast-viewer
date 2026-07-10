@@ -33,11 +33,12 @@ import csv
 import html as _html
 import streamlit as st
 
-# deploy-marker: history-view + sidebar nav (2026-07-10) — redeploy trigger
+# deploy-marker: history-view + main-view nav (2026-07-10b) — redeploy trigger
 
-# サイドバーに表示するビルド識別子。Cloud が古いビルドを配信していないか
-# 画面から即座に確認できるようにするための目印。
-APP_BUILD = "2026-07-10 history-view-nav"
+# 本文上部に表示するビルド識別子。Cloud が古いビルドを配信していないか
+# 画面から即座に確認できるようにするための目印。サイドバーが折りたたまれて
+# いても見えるよう、ページ切替の直下に置く。
+APP_BUILD = "2026-07-10b main-view-nav"
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
@@ -434,42 +435,60 @@ hr{display:none;}
 
 
 # ======================================================================
-# ページ切替（サイドバー最上部）専用CSS
-#   本体CSSには radio を隠すルールは無いが、Streamlit 本体や将来の追記で
-#   選択肢が消えることを防ぐため、ここで明示的に可視化を固定する。
-#   本体CSS（CSS 定数）とは独立して、サイドバー描画の直前に注入する。
+# ページ切替（本文上部）専用CSS
+#   サイドバーは環境によって折りたたまれて見えないことがあるため、
+#   ページ切替は本文上部（タイトル直下・メタ情報の上）に置くのを正とする。
+#   本体CSSには radio を隠すルールは無いが、Streamlit 本体の更新や
+#   将来のCSS追記で消えないよう、ここで可視化を !important で固定する。
+#   セレクタはサイドバー限定にせず、アプリ内の radio 全体に効かせる
+#   （このアプリの radio はページ切替の1つだけ）。
 # ======================================================================
 NAV_CSS = """
 <style>
-[data-testid="stSidebar"] [data-testid="stRadio"]{
+[data-testid="stRadio"]{
   display:block !important; visibility:visible !important; opacity:1 !important;
   height:auto !important; overflow:visible !important;
   background:#F7F8FA; border:1px solid #E8EBF1; border-left:3px solid #B08A4E;
-  border-radius:12px; padding:12px 14px 10px; margin:4px 0 16px;
+  border-radius:12px; padding:12px 18px 10px; margin:14px 0 18px;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] label{
+[data-testid="stRadio"] label{
   visibility:visible !important; opacity:1 !important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] p{
+[data-testid="stRadio"] [data-testid="stWidgetLabel"] p{
   font-size:11px !important; font-weight:800 !important; letter-spacing:1.6px;
   color:#B08A4E !important; text-transform:uppercase; margin-bottom:8px !important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"]{
-  display:flex !important; flex-direction:column !important; gap:6px;
-  visibility:visible !important; opacity:1 !important; height:auto !important;
+[data-testid="stRadio"] div[role="radiogroup"]{
+  display:flex !important; flex-direction:row !important; flex-wrap:wrap;
+  gap:6px 28px; visibility:visible !important; opacity:1 !important;
+  height:auto !important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label{
-  display:flex !important; align-items:center; margin:0 !important; padding:3px 0;
+[data-testid="stRadio"] div[role="radiogroup"] > label{
+  display:flex !important; align-items:center; margin:0 !important; padding:2px 0;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] p{
-  font-size:14.5px !important; font-weight:700 !important; color:#0B1F3A !important;
+[data-testid="stRadio"] div[role="radiogroup"] p{
+  font-size:15px !important; font-weight:700 !important; color:#0B1F3A !important;
   visibility:visible !important; opacity:1 !important;
 }
-[data-testid="stSidebar"] .mdc-build{
+.mdc-build{
   font-size:10.5px; color:#9AA3B0; letter-spacing:.3px; margin-top:18px;
+}
+.mdc-navnote{
+  font-size:12px; color:#9AA3B0; margin:-8px 2px 16px;
 }
 </style>
 """
+
+
+def page_nav():
+    """ページ切替。本文上部（タイトル直下・メタ情報の上）に描画する。
+    ウィジェットは session_state['nav_page'] を唯一の正とする。"""
+    st.markdown(NAV_CSS, unsafe_allow_html=True)
+    st.radio("表示する画面", [PAGE_FORECAST, PAGE_HISTORY], key="nav_page",
+             horizontal=True,
+             help="「今月の予測」は当月の着地見込み、「過去実績」は確定した過去の実績です。")
+    st.markdown(f"<div class='mdc-navnote'>build: {_html.escape(APP_BUILD)}</div>",
+                unsafe_allow_html=True)
 
 
 def lab(kind):
@@ -528,7 +547,7 @@ def trend_chart(hist, py_actual):
 # ======================================================================
 # 本体描画
 # ======================================================================
-def render(month, snap):
+def render(month, snap, nav=None):
     st.markdown(CSS, unsafe_allow_html=True)
     ym_jp = ym_label(month)
     snap_dir = os.path.join(DATA, month, "snapshots", snap)
@@ -554,6 +573,10 @@ def render(month, snap):
         "<div class='mfc-sub'><b style='color:#0B1F3A;font-weight:800'>日次ローリング予測｜経営ダッシュボード</b>　"
         "表示値は確定値ではなく、経営判断の中心線（推定値）です。月末後に実績と照合して検証します。</div>",
         unsafe_allow_html=True)
+
+    if nav:
+        nav()
+
     st.markdown(
         f"<div class='mfc-meta'>対象月 <b>{ym_jp}</b>　·　予測基準日 <b>{as_of}</b>　·　"
         f"{meta.get('forecast_mode','日次ローリング予測')}　·　"
@@ -1162,7 +1185,7 @@ TABLE_COLS = ["年月", "診療日数", "月間総売上", "保険診療売上",
               "キャンセル率", "1診療日あたり売上", "1来院あたり売上", "1患者あたり売上"]
 
 
-def render_history():
+def render_history(nav=None):
     st.markdown(CSS, unsafe_allow_html=True)
     df = read_monthly_actuals()
 
@@ -1172,6 +1195,9 @@ def render_history():
         "<div class='mfc-sub'>確定した過去実績を任意の期間で振り返る画面です。"
         "表示しているのは月次に集計済みの確定値のみで、患者単位のデータは含みません。</div>",
         unsafe_allow_html=True)
+
+    if nav:
+        nav()
 
     if df is None or df.empty:
         st.warning("過去実績データがありません。"
@@ -1305,14 +1331,16 @@ if check_password():
     target = None
     snap = None
 
+    # 表示中のページは session_state を唯一の正とする。ウィジェット本体は
+    # 本文上部（page_nav）に1つだけ置く。サイドバーは折りたたまれて見えない
+    # ことがあるため、切替の入口をサイドバーに依存させない。
+    if "nav_page" not in st.session_state:
+        st.session_state["nav_page"] = PAGE_FORECAST
+    page = st.session_state["nav_page"]
+
     with st.sidebar:
         st.markdown("### MDC Forecast Console")
-        # ページ切替より前に注入する。本体CSSの hr{display:none} で区切り線が
-        # 消えるため、区切りは NAV_CSS 側の枠線で表現する。
-        st.markdown(NAV_CSS, unsafe_allow_html=True)
-        page = st.radio("表示する画面", [PAGE_FORECAST, PAGE_HISTORY], index=0,
-                        key="nav_page",
-                        help="「今月の予測」は当月の着地見込み、「過去実績」は確定した過去の実績です。")
+        st.caption(f"表示中：{page}")
 
         if page == PAGE_FORECAST:
             st.caption("日次ローリング予測・閲覧専用")
@@ -1343,18 +1371,18 @@ if check_password():
 
         st.caption("予測は毎日ローカルで自動更新し、集計済みの結果のみをクラウドへ反映します。"
                    "個人情報・患者単位データは一切含みません。")
-        st.markdown(f"<div class='mdc-build'>build: {_html.escape(APP_BUILD)}</div>",
-                    unsafe_allow_html=True)
 
     if page == PAGE_HISTORY:
-        render_history()
+        render_history(nav=page_nav)
     elif not months:
         st.markdown('<div style="font-size:29px;font-weight:800;color:#0B1F3A;">'
                     'MDC Forecast Console｜日次ローリング予測</div>', unsafe_allow_html=True)
+        page_nav()
         st.warning("表示できる対象月がありません。data/YYYY_MM/ に snapshots とlatest.json を配置してください。")
     elif not snap:
         st.markdown('<div style="font-size:29px;font-weight:800;color:#0B1F3A;">'
                     'MDC Forecast Console｜日次ローリング予測</div>', unsafe_allow_html=True)
+        page_nav()
         st.warning("表示できるスナップショットがありません。")
     else:
-        render(target, snap)
+        render(target, snap, nav=page_nav)
