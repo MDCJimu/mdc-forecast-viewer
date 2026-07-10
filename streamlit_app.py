@@ -33,12 +33,12 @@ import csv
 import html as _html
 import streamlit as st
 
-# deploy-marker: portfolio view UI polish (2026-07-10d) — redeploy trigger
+# deploy-marker: portfolio current-month forecast (2026-07-10e) — redeploy trigger
 
 # 本文上部に表示するビルド識別子。Cloud が古いビルドを配信していないか
 # 画面から即座に確認できるようにするための目印。サイドバーが折りたたまれて
 # いても見えるよう、ページ切替の直下に置く。
-APP_BUILD = "2026-07-10d portfolio-ui"
+APP_BUILD = "2026-07-10e portfolio-forecast"
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
@@ -59,6 +59,10 @@ F_MONTHLY_ACTUALS = "monthly_actuals.csv"
 F_HISTORY_META = "history_meta.json"
 F_PORTFOLIO = "portfolio_monthly.csv"
 F_PORTFOLIO_META = "portfolio_meta.json"
+F_PF_FORECAST = "portfolio_forecast.json"
+
+PF_DATA_ACTUAL = "確定実績"
+PF_DATA_FORECAST = "当月見込み"
 
 MONTH_RE = re.compile(r"^(\d{4})_(\d{2})$")
 ASOF_RE = re.compile(r"^(\d{4})_(\d{2})_(\d{2})$")
@@ -1560,6 +1564,22 @@ PF_CSS = """
 .pf-chip .v b{font-size:17px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;}
 .pf-chip .v small{display:block;font-size:11px;color:var(--faint);font-weight:600;}
 
+/* ---- 当月見込み: 警告帯・見込みバッジ ---- */
+.pf-warn{background:#FBF3E4;border:1px solid #ECD9B0;border-left:4px solid var(--gold);
+  border-radius:12px;padding:13px 18px;margin:14px 0 4px;font-size:13.5px;color:#7A5A16;
+  font-weight:600;line-height:1.6;}
+.pf-warn b{color:#5C4310;font-weight:800;}
+.pf-est{display:inline-block;font-size:10px;font-weight:800;letter-spacing:1px;
+  background:#F6EFDE;color:#8A6A24;border-radius:6px;padding:2px 8px;margin-left:8px;
+  vertical-align:middle;}
+.pf-hero.est{background:radial-gradient(120% 150% at 90% 4%,rgba(203,169,104,.22),transparent 44%),
+  linear-gradient(155deg,#14243a 0%,#1b3557 62%,#213f6f 100%);}
+.pf-hero .rng{font-size:12px;color:#c7d2e0;margin-top:8px;line-height:1.5;}
+.pf-hero .rng b{color:#e0c894;font-weight:800;}
+.pf-cmp{font-size:13px;color:var(--muted);line-height:1.7;margin:6px 2px 0;
+  padding-top:10px;border-top:1px dashed #E8EBF1;}
+.pf-cmp b{color:var(--navy);font-weight:800;}
+
 /* ---- 安定性マトリクスの解説 ---- */
 .pf-mx{font-size:13px;color:var(--muted);line-height:1.65;margin:6px 2px 0;
   padding-top:10px;border-top:1px dashed #E8EBF1;}
@@ -1672,12 +1692,178 @@ def pf_select_period(months):
     return s, e, f"任意期間（{ym_range_jp(s, e)}）"
 
 
+@st.cache_data(show_spinner=False)
+def _load_pf_forecast(path, _mtime):
+    return read_json(path)
+
+
+def read_pf_forecast():
+    """最新スナップショットの portfolio_forecast.json を読む。無ければ None。"""
+    for month in list_months():
+        latest = read_json(os.path.join(DATA, month, F_LATEST)) or {}
+        snap = os.path.basename(str(latest.get("latest_snapshot_dir", "")).rstrip("/"))
+        if not snap:
+            continue
+        p = os.path.join(DATA, month, "snapshots", snap, F_PF_FORECAST)
+        if os.path.isfile(p):
+            try:
+                return _load_pf_forecast(p, os.path.getmtime(p))
+            except Exception:
+                return None
+    return None
+
+
+def chart_pf_compare(fc_share, act_share):
+    """当月見込み vs 直近12か月確定実績の構成比を横棒で比較する。"""
+    import pandas as pd
+    import altair as alt
+    rows = []
+    for lb in PF_LABELS:
+        rows.append({"分類": lb, "系列": "当月見込み", "構成比": fc_share[lb]})
+        rows.append({"分類": lb, "系列": "直近12か月 確定実績", "構成比": act_share[lb]})
+    d = pd.DataFrame(rows)
+    ch = alt.Chart(d).mark_bar(cornerRadiusEnd=3, height=17).encode(
+        y=alt.Y("分類:N", sort=PF_LABELS, title=None,
+                axis=alt.Axis(labelFontSize=12.5, labelColor="#0B1F3A",
+                              labelFontWeight="bold", labelPadding=8)),
+        x=alt.X("構成比:Q", title="売上構成比（％）", scale=alt.Scale(domain=[0, 60])),
+        yOffset=alt.YOffset("系列:N", sort=["当月見込み", "直近12か月 確定実績"]),
+        color=alt.Color("系列:N", sort=["当月見込み", "直近12か月 確定実績"],
+                        scale=alt.Scale(domain=["当月見込み", "直近12か月 確定実績"],
+                                        range=["#B08A4E", "#0B1F3A"]),
+                        legend=alt.Legend(orient="top", title=None, direction="horizontal")),
+        tooltip=[alt.Tooltip("分類:N"), alt.Tooltip("系列:N"),
+                 alt.Tooltip("構成比:Q", title="構成比(%)", format=".1f")])
+    return (ch.properties(height=270).configure_view(strokeWidth=0).configure_axis(**AX))
+
+
 def pf_card(lb, val, unit, sub, accent="a-gray", small=False):
     u = f"<u>{unit}</u>" if unit else ""
     return (f"<div class='pf-card {accent}{' sm' if small else ''}'>"
             f"<div class='lb'>{lb}</div>"
             f"<div class='val'>{val}{u}</div>"
             f"<div class='sub'>{sub}</div></div>")
+
+
+def render_portfolio_forecast(fc, df):
+    """当月見込み（推定値）。確定実績とは明確に分けて描画する。"""
+    import pandas as pd
+
+    as_of = fc.get("as_of_date", "—")
+    total = int(fc["current_forecast_total"])
+    amt = {b["表示分類名"]: int(b["売上見込み"]) for b in fc["buckets"]}
+    share = {k: v / total * 100 for k, v in amt.items()}
+    hv = fc["high_value_range"]
+
+    # ---- A. 警告帯 ----
+    st.markdown(
+        f"<div class='pf-warn'>⚠ <b>これは確定実績ではありません。</b>"
+        f"{as_of} 時点の実績・予約状況・過去傾向から算出した<b>当月見込み</b>です。"
+        "分類別の金額は按分による推定であり、確定した内訳ではありません。"
+        "月末後に確定実績と照合します。</div>", unsafe_allow_html=True)
+
+    # ---- B. ヒーロー ----
+    stock_pct = share["ストック型売上"]
+    hv_pct = share["高単価型売上"]
+    st.markdown(
+        "<div class='pf-hero est'>"
+        "<div class='l'>"
+        f"<div class='k'>Forecast · as of {_html.escape(as_of)}</div>"
+        f"<div class='big'>{stock_pct:.1f}<span>%</span></div>"
+        "<div class='cap'>がストック型売上の見込み</div>"
+        f"<div class='sub'>7月の基準予測 {manv(total)} 万円のうち、"
+        f"{manv(amt['ストック型売上'])} 万円が継続管理と訪問・介護によるストック型の見込みです。</div>"
+        "</div>"
+        "<div class='r'>"
+        f"<div class='it'>高単価型見込み<b>{manv(amt['高単価型売上'])}"
+        "<span style='font-size:12px'> 万円</span></b></div>"
+        f"<div class='it'>高単価依存度<b>{hv_pct:.1f}<span style='font-size:12px'> %</span></b></div>"
+        f"<div class='rng'>高単価型 参考レンジ "
+        f"<b>{manv(hv['参考下限'])} 〜 {manv(hv['参考上限'])} 万円</b><br>"
+        f"（月次変動係数 {hv['使用した変動係数']}% による±1σ・確定値ではありません）</div>"
+        "</div></div>", unsafe_allow_html=True)
+
+    # ---- C. KPIカード ----
+    row1 = "".join([
+        pf_card("ストック型見込み", manv(amt["ストック型売上"]), "万円",
+                f"構成比 <b>{share['ストック型売上']:.1f}%</b>", "a-navy"),
+        pf_card("スポット型見込み", manv(amt["スポット型売上"]), "万円",
+                f"構成比 <b>{share['スポット型売上']:.1f}%</b>", "a-blue"),
+        pf_card("高単価型見込み", manv(amt["高単価型売上"]), "万円",
+                f"構成比 <b>{share['高単価型売上']:.1f}%</b>", "a-gold"),
+        pf_card("混合・未分類見込み", manv(amt["混合・未分類"]), "万円",
+                f"構成比 <b>{share['混合・未分類']:.1f}%</b>", "a-gray"),
+    ])
+    row2 = "".join([
+        pf_card("ストック比率", f"{stock_pct:.1f}", "%", "当月見込み", "a-green", small=True),
+        pf_card("高単価依存度", f"{hv_pct:.1f}", "%", "当月見込み", "a-gold", small=True),
+        pf_card("高単価型 参考レンジ", f"{manv(hv['参考下限'])}〜{manv(hv['参考上限'])}", "万円",
+                f"変動係数 <b>{hv['使用した変動係数']}%</b>・確定値ではありません", "a-gold",
+                small=True),
+        pf_card("基準予測合計", manv(total), "万円",
+                f"訪問・介護 <b>{manv(fc['visit_care_forecast_total'])}</b> 万円を含む",
+                "a-navy", small=True),
+    ])
+    st.markdown(f"<div class='pf-grid'>{row1}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='pf-grid'>{row2}</div>", unsafe_allow_html=True)
+
+    # ---- D/E. 直近12か月 確定実績との比較 ----
+    st.markdown("<div class='mfc-tier'><span class='n'>Compare</span>"
+                "当月見込み と 直近12か月の確定実績</div>", unsafe_allow_html=True)
+    wide = pf_pivot(df)
+    l12 = wide.tail(12)
+    a_amt = l12.sum()
+    a_share = (a_amt / a_amt.sum() * 100).to_dict()
+
+    with st.container(border=True):
+        st.markdown("<div class='pf-ch'><div class='t'>分類別の構成比比較</div>"
+                    f"<div class='s'>当月見込み（{as_of} 時点）と、"
+                    f"直近12か月の確定実績（{l12.index[0]} 〜 {l12.index[-1]}）</div></div>",
+                    unsafe_allow_html=True)
+        st.altair_chart(chart_pf_compare(share, a_share), width="stretch")
+
+        rows = []
+        for lb in PF_LABELS:
+            d = share[lb] - a_share[lb]
+            sign = "＋" if d >= 0 else "▲"
+            rows.append(f"<b>{lb}</b>：当月見込み {share[lb]:.1f}% ／ "
+                        f"直近12か月 {a_share[lb]:.1f}%（{sign}{abs(d):.1f}pt）")
+        st.markdown(f"<div class='pf-cmp'>{'<br>'.join(rows)}</div>", unsafe_allow_html=True)
+
+    # ---- 明細テーブル ----
+    st.markdown("<div class='mfc-tier'><span class='n'>Table</span>当月見込みの内訳</div>",
+                unsafe_allow_html=True)
+    tbl = pd.DataFrame([{
+        "分類": b["表示分類名"], "売上見込み(円)": int(b["売上見込み"]),
+        "構成比(%)": b["構成比"], "分類方法": b["分類方法"],
+        "直近12か月 実績構成比(%)": round(a_share[b["表示分類名"]], 1),
+    } for b in fc["buckets"]])
+    with st.container(border=True):
+        st.dataframe(tbl, width="stretch", hide_index=True)
+
+    # ---- F. 注記 ----
+    ap = fc.get("按分方式", {}) or {}
+    learned = ap.get("1予約あたり売上", {}) or {}
+    lt = "／".join(f"{k} {v:,}円" for k, v in learned.items())
+    st.markdown(
+        "<div class='mfc-note'><b>これは当月見込みです。</b>"
+        f"{as_of} 時点の確定実績・登録済み予約・過去傾向から算出した推定値であり、"
+        "確定値ではありません。月末後に確定実績と照合します。<br>"
+        f"<b>分類方法</b>　{ap.get('名称', '想定売上加重按分')}。"
+        f"予約1件あたりの想定売上（{lt}）で加重して分解しています。"
+        f"予約を伴わない来院と突合の残差として {manv(ap.get('残差先取り額', 0))} 万円を先取りし、"
+        "残りを登録済み予約から按分しました。キャンセル済みの予約は按分から除外しています。<br>"
+        f"<b>訪問・介護</b>　{manv(fc['visit_care_forecast_total'])} 万円はストック型に含めています。"
+        "反復性が高く、確定実績の売上ポートフォリオと同じ定義です。<br>"
+        "<b>高単価型の参考レンジ</b>　確定実績から求めた月次変動係数による±1σの目安であり、"
+        "予測区間ではありません。高単価型は月ごとの振れが大きいため、点推定だけでは誤解を招きます。<br>"
+        "<b>合計</b>　4分類の合計は基準予測合計と円単位で一致します。<br>"
+        "<b>個人情報</b>　本データは集計済みで、個人または担当者を識別しうる項目は一切含みません。"
+        "</div>", unsafe_allow_html=True)
+
+    st.caption(f"生成日時：{fc.get('generated_at', '—')}"
+               f"｜対象月 {fc.get('target_month', '—')}"
+               f"｜確定実績の反映 {fc.get('actual_data_through', '—')} まで")
 
 
 def render_portfolio(nav=None):
@@ -1689,7 +1875,7 @@ def render_portfolio(nav=None):
         "<div class='mfc-title'>MDC Forecast Console"
         "<span class='mfc-vchip'>Portfolio</span></div>"
         "<div class='mfc-sub'>この医院の売上が、安定収益なのか、都度獲得型なのか、"
-        "高単価に依存しているのかを見る画面です。確定した月次実績のみを使っています。</div>",
+        "高単価に依存しているのかを見る画面です。</div>",
         unsafe_allow_html=True)
 
     if nav:
@@ -1699,6 +1885,30 @@ def render_portfolio(nav=None):
         st.warning("売上ポートフォリオのデータがありません。"
                    "ローカルで scripts/build_portfolio_aggregates.py を実行し、"
                    "data/history/portfolio_monthly.csv を配置してください。")
+        return
+
+    # ---- データ種別の切替（確定実績 / 当月見込み） ----
+    fc = read_pf_forecast()
+    with st.container(border=True):
+        st.markdown("<div class='pf-pcard-h'><span>Data</span>データ種別</div>",
+                    unsafe_allow_html=True)
+        opts = [PF_DATA_ACTUAL] + ([PF_DATA_FORECAST] if fc else [])
+        dtype = st.selectbox("データ種別", opts, index=0, key="pf_datatype",
+                             label_visibility="collapsed",
+                             help="「確定実績」はレセコン締め後の確定値、"
+                                  "「当月見込み」は当月の推定値です。")
+        if fc:
+            st.markdown(
+                f"<div class='pf-pnote'>確定実績は 〜"
+                f"{ym_jp(list(pf_pivot(df).index)[-1])} ／ "
+                f"当月見込みは {fc.get('target_month')}（as_of {fc.get('as_of_date')}）"
+                "<span class='pf-est'>見込</span></div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='pf-pnote'>当月見込みのデータがまだありません。"
+                        "確定実績のみ表示します。</div>", unsafe_allow_html=True)
+
+    if dtype == PF_DATA_FORECAST and fc:
+        render_portfolio_forecast(fc, df)
         return
 
     meta = read_json(hist_path(F_PORTFOLIO_META)) or {}
