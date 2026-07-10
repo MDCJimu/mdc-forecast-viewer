@@ -28,3 +28,10 @@ apotool_all_master.csv
 #     上のいずれにも一致させず、意図的にアップロード対象として残す。
 # 念のため明示的に追跡を許可（*_master.csv 等に一致しないが二重ガード）。
 !forecast_history.csv
+
+# --- 過去実績ビュー（data/history/）---
+# 既定で全て除外し、安全確認済みのファイルだけを名指しで許可する（default-deny）。
+# scripts/build_history_aggregates.py が生成したもの以外は、置いても push されない。
+data/history/*
+!data/history/monthly_actuals.csv
+!data/history/history_meta.json
