@@ -1,0 +1,13 @@
+{
+  "target_month": "2026-07",
+  "as_of_date": "2026-07-14",
+  "generated_at": "2026-07-14 13:47:05",
+  "forecast_mode": "日次ローリング予測",
+  "resec_data_status": "反映済み",
+  "apotool_data_status": "反映済み",
+  "actual_data_through": "2026-07-13",
+  "reservation_data_through": "2026-07-31",
+  "model_version": "MDC Forecast Model v2.0",
+  "pipeline_exit_code": 0,
+  "for_cloud_viewer": true
+}
