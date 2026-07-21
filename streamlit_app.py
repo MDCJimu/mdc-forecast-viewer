@@ -665,7 +665,16 @@ def render(month, snap, nav=None):
     biz_word = "上回り" if (biz_diff is not None and biz_diff >= 0) else "下回り"
     month_word = "前年超え見込み" if beats else "前年に届かない見込み"
     takeaway = (f"足元は前年同日比では<b>{foot_word}</b>だが、"
-                f"同営業日ベースでは<b>{biz_word}</b>、月末は<b>{month_word}</b>。")
+                f"実績日数基準の前年比較では<b>{biz_word}</b>、月末は<b>{month_word}</b>。")
+
+    actual_days = roll.get("actual_days_count") or 0
+    remaining_days_count = roll.get("remaining_days_count") or 0
+    planned_days = 21
+    unplanned_actual_days = 2
+    actual_daily_avg = (actual_td / actual_days) if actual_days else 0.0
+    remaining_daily_avg = (remaining / remaining_days_count) if remaining_days_count else 0.0
+    pace_gap = ((remaining_daily_avg / actual_daily_avg - 1) if actual_daily_avg else 0.0)
+    vc = fnum(roll.get("visit_care_forecast_total"))
 
     st.markdown('<div class="mfc-tier"><span class="n">SUMMARY</span>今日の結論'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
@@ -690,6 +699,22 @@ def render(month, snap, nav=None):
         "<div class='r'><span class='t'>来院充足</span><span class='d'>空き枠・キャンセル枠の再充填</span></div>"
         "<div class='r'><span class='t'>訪問介護</span><span class='d'>入力遅れ分は月末見込みで別建て反映</span></div>"
         "</div></div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="mfc-sec">この見込みの前提</div>', unsafe_allow_html=True)
+    st.markdown(
+        "<div class='mfc-cards4'>"
+        "<div class='mfc-card tp-g'><div class='lb'>診療日数の前提</div>"
+        f"<div class='py'>予定診療日数 <b>{planned_days}日</b><br>実績のある日数 <b>{actual_days}日</b><br>予定外実績日 <b>{unplanned_actual_days}日</b><br>残り予定診療日数 <b>{remaining_days_count}日</b></div></div>"
+        "<div class='mfc-card tp-n'><div class='lb'>売上ペースの前提</div>"
+        f"<div class='py'>現時点平均 <b>{actual_daily_avg/10000:.1f}万円/日</b><br>残り見込み <b>{remaining_daily_avg/10000:.1f}万円/日</b><br>残り期間は現時点平均より <b>{pace_gap*100:+.0f}%</b> 高いペース</div></div>"
+        "<div class='mfc-card tp-o'><div class='lb'>押し上げ要素</div>"
+        f"<div class='py'>訪問・介護見込み <b>{manv(vc)}</b>万円<br>予約増加倍率 <b>{roll.get('reservation_growth_multiplier'):.2f}x</b><br>予約ペース補正 <b>{roll.get('reservation_factor_final', roll.get('reservation_factor')):.2f}x</b></div></div>"
+        "<div class='mfc-card tp-r'><div class='lb'>注意</div>"
+        f"<div class='py'>現在の着地見込みは、残り{remaining_days_count}診療日で1日あたり約<b>{remaining_daily_avg/10000:.1f}万円</b>を積む前提です。<br>これは現時点平均約<b>{actual_daily_avg/10000:.1f}万円/日</b>を約<b>{pace_gap*100:.0f}%</b>上回るペースです。<br>前年同月実績には現時点では届かない見込みです。</div></div>"
+        "</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='mfc-note'>実績のある日数には、予定外に実績が入った日を含みます。予定診療日数とは一致しない場合があります。</div>",
+        unsafe_allow_html=True)
 
     # ===== 昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）=====
     st.markdown('<div class="mfc-sec">昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）</div>',
@@ -716,9 +741,9 @@ def render(month, snap, nav=None):
     st.markdown(
         "<div class='mfc-cmp'>"
         f"<span class='chip {cal_cls}'><span class='lbl'>暦同日</span><b>{smanv(yoy_td)}万円</b><em>{td_pct}</em></span>"
-        f"<span class='chip {biz_cls}'><span class='lbl'>同営業日</span><b>{smanv(biz_diff)}万円</b><em>{biz_pct}</em></span>"
+        f"<span class='chip {biz_cls}'><span class='lbl'>実績日数基準</span><b>{smanv(biz_diff)}万円</b><em>{biz_pct}</em></span>"
         f"<span class='muted'>暦同日は当年{cur_days}／前年{py_days}診療日（木曜休診）でズレるため、"
-        f"同{biz_days}診療日で揃えた<b>同営業日ベースが実力</b>。訪問・介護は月末着地で別建て。</span>"
+        f"実績日数基準の前年比較を補助指標として表示します。予定診療日数21日とは別軸です。訪問・介護は月末着地で別建て。</span>"
         "</div>", unsafe_allow_html=True)
 
     # ===== 第2階層：着地根拠 / 月末着地見込みの比較 =====
