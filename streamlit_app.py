@@ -1738,6 +1738,19 @@ def read_pf_forecast():
     return None
 
 
+def last_pf_forecast_asof():
+    """portfolio_forecast.json を含む最新スナップショットの as_of 日付（YYYY-MM-DD）を返す。無ければ None。
+
+    ※ 古い当月見込みを自動で代用表示はしない。「最後に生成された日」を示す参照用のみ。
+    """
+    for month in list_months():            # 新しい月から
+        for snap in list_snapshots(month):  # 新しい日から
+            p = os.path.join(DATA, month, "snapshots", snap, F_PF_FORECAST)
+            if os.path.isfile(p):
+                return asof_from_dir(snap)
+    return None
+
+
 def chart_pf_compare(fc_share, act_share):
     """当月見込み vs 直近12か月確定実績の構成比を横棒で比較する。"""
     import pandas as pd
@@ -1929,8 +1942,13 @@ def render_portfolio(nav=None):
                 f"当月見込みは {fc.get('target_month')}（as_of {fc.get('as_of_date')}）"
                 "<span class='pf-est'>見込</span></div>", unsafe_allow_html=True)
         else:
-            st.markdown("<div class='pf-pnote'>当月見込みのデータがまだありません。"
-                        "確定実績のみ表示します。</div>", unsafe_allow_html=True)
+            last_asof = last_pf_forecast_asof()
+            msg = ("当月見込みデータは本日分が未生成です。\n\n"
+                   "日次更新時に当月ポートフォリオ見込みを生成できなかったため、"
+                   "現在は確定実績のみ表示しています。日次更新ログを確認してください。")
+            if last_asof:
+                msg += f"\n\n最後に生成された当月見込み：{last_asof}"
+            st.warning(msg)
 
     if dtype == PF_DATA_FORECAST and fc:
         render_portfolio_forecast(fc, df)
