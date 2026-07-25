@@ -572,6 +572,8 @@ def render(month, snap, nav=None):
 
     meta = read_json(os.path.join(snap_dir, F_META)) or {}
     roll = read_json(os.path.join(snap_dir, F_ROLL)) or {}
+    # シャドーモデル v2.1（参考・任意）。無ければ None（基準予測表示には影響しない）。
+    candidate = read_json(os.path.join(snap_dir, "candidate_forecast_v21.json"))
     summary_md = read_text(os.path.join(snap_dir, F_SUMMARY))
     forecast_md = read_text(os.path.join(snap_dir, F_FORECAST))
     modelcard_md = read_text(os.path.join(snap_dir, F_MODELCARD))
@@ -715,6 +717,53 @@ def render(month, snap, nav=None):
     st.markdown(
         "<div class='mfc-note'>実績のある日数には、予定外に実績が入った日を含みます。予定診療日数とは一致しない場合があります。</div>",
         unsafe_allow_html=True)
+
+    # ===== 参考モデル v2.1（検証中・シャドー）=====
+    #   基準予測（ヒーロー/①）は一切変更しない。候補JSONがある時のみ控えめな参考カードを表示。
+    if candidate and candidate.get("model_status") == "shadow":
+        c_cur = fnum(candidate.get("current_model_forecast_total"))
+        c_can = fnum(candidate.get("candidate_forecast_total"))
+        c_diff = fnum(candidate.get("difference_vs_current"))
+        c_yoy = candidate.get("candidate_yoy_rate")
+        c_rem = fnum(candidate.get("candidate_remaining_daily_average"))
+        d = candidate.get("difference_breakdown") or {}
+        c_yoy_txt = f"{c_yoy:+.1f}%" if isinstance(c_yoy, (int, float)) else "—"
+        reason = (f"外来保険の補正を1.10→1.05に縮小（約{sman(fnum(d.get('insurance_adjust_reduced')))}万）、"
+                  f"自費の一律補正を廃止（約{sman(fnum(d.get('selfpay_adjust_removed')))}万）、"
+                  f"物販の一律補正を廃止（約{sman(fnum(d.get('product_adjust_removed')))}万）。"
+                  f"件数（来院・患者・初診）の見込みは現行のまま変更なし。")
+        st.markdown(
+            "<div class='mfc-sec' style='opacity:.72'>参考モデル v2.1（検証中）"
+            "<span style='font-size:10px;font-weight:800;letter-spacing:1.6px;color:#9AA3B0;"
+            "border:1px solid #cfd6df;border-radius:999px;padding:2px 9px;margin-left:10px;"
+            "vertical-align:middle;'>SHADOW · 参考</span></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div style='background:#f4f6f9;border:1px solid #dde3ea;border-left:3px solid #9AA3B0;"
+            "border-radius:10px;padding:14px 18px;color:#3a4658;'>"
+            "<div style='font-size:12px;font-weight:800;color:#8a94a3;letter-spacing:.4px;margin-bottom:8px;'>"
+            "検証中の候補モデル（現在の基準予測ではありません）</div>"
+            "<div style='display:flex;flex-wrap:wrap;gap:22px;align-items:baseline;'>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>現行基準予測 v2.0</div>"
+            f"<div style='font-size:19px;font-weight:800;color:#5a6472;'>{manv(c_cur)}<small style='font-size:11px'>万円</small></div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>v2.1候補予測</div>"
+            f"<div style='font-size:19px;font-weight:800;color:#3a4658;'>{manv(c_can)}<small style='font-size:11px'>万円</small></div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>差額</div>"
+            f"<div style='font-size:16px;font-weight:800;color:#B08A4E;'>{sman(c_diff)}<small style='font-size:11px'>万円</small></div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>候補の前年比</div>"
+            f"<div style='font-size:16px;font-weight:800;color:#5a6472;'>{c_yoy_txt}</div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>候補 残り1診療日あたり</div>"
+            f"<div style='font-size:16px;font-weight:800;color:#5a6472;'>{c_rem/10000:.1f}<small style='font-size:11px'>万円/日</small></div></div>"
+            "</div>"
+            f"<div style='font-size:11.5px;color:#6b7686;line-height:1.6;margin-top:10px;'>"
+            f"<b style='color:#8a94a3;'>差が出る主な理由：</b>{reason}</div>"
+            "<div style='font-size:11px;color:#8a94a3;margin-top:8px;font-weight:700;'>"
+            "※ v2.1は検証中の候補モデルです。現在の基準予測ではありません。</div>"
+            "</div>", unsafe_allow_html=True)
+    else:
+        # 候補JSONが無い日は、参考カードを出さない（アプリは落とさない）。
+        st.markdown(
+            "<div class='mfc-note' style='opacity:.6'>参考モデル v2.1（検証中）：この基準日では候補モデル未生成のため非表示。</div>",
+            unsafe_allow_html=True)
 
     # ===== 昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）=====
     st.markdown('<div class="mfc-sec">昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）</div>',
