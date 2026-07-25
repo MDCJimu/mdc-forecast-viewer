@@ -574,6 +574,8 @@ def render(month, snap, nav=None):
     roll = read_json(os.path.join(snap_dir, F_ROLL)) or {}
     # シャドーモデル v2.1（参考・任意）。無ければ None（基準予測表示には影響しない）。
     candidate = read_json(os.path.join(snap_dir, "candidate_forecast_v21.json"))
+    # Challenger v3（参考・任意）。latest→snap_dir→candidate_forecast_v3.json。無ければ None。
+    v3cand = read_json(os.path.join(snap_dir, "candidate_forecast_v3.json"))
     summary_md = read_text(os.path.join(snap_dir, F_SUMMARY))
     forecast_md = read_text(os.path.join(snap_dir, F_FORECAST))
     modelcard_md = read_text(os.path.join(snap_dir, F_MODELCARD))
@@ -763,6 +765,69 @@ def render(month, snap, nav=None):
         # 候補JSONが無い日は、参考カードを出さない（アプリは落とさない）。
         st.markdown(
             "<div class='mfc-note' style='opacity:.6'>参考モデル v2.1（検証中）：この基準日では候補モデル未生成のため非表示。</div>",
+            unsafe_allow_html=True)
+
+    # ===== Challenger モデル v3（検証中・シャドー）=====
+    #   正式基準予測(v2.1/ヒーロー)は変更しない。当日v3がある時のみ控えめな参考カードを表示。
+    if v3cand and v3cand.get("model_status") == "shadow":
+        w3_total = fnum(v3cand.get("forecast_total"))
+        w3_v21 = fnum(v3cand.get("v21_forecast_total"))
+        w3_diff = fnum(v3cand.get("difference_vs_v21"))
+        w3_prog = v3cand.get("progress")
+        w3_ew = v3cand.get("ensemble_weight")
+        w3_vw = v3cand.get("v21_weight")
+        i80l = fnum(v3cand.get("interval_80_low")); i80h = fnum(v3cand.get("interval_80_high"))
+        i90l = fnum(v3cand.get("interval_90_low")); i90h = fnum(v3cand.get("interval_90_high"))
+        prog_pct = f"{w3_prog*100:.0f}%" if isinstance(w3_prog, (int, float)) else "—"
+        # 差額：正=v3がv2.1より高い / 負=低い。0は同額。
+        if isinstance(w3_diff, (int, float)):
+            if abs(w3_diff) < 1:
+                diff_txt = "±0円（v2.1と同額）"
+            elif w3_diff < 0:
+                diff_txt = f"▲{intv(-w3_diff)}円"
+            else:
+                diff_txt = f"+{intv(w3_diff)}円"
+        else:
+            diff_txt = "—"
+        same_note = ("進捗率が40%以上のため、v3は現在v2.1を100%採用しています。"
+                     if isinstance(w3_ew, (int, float)) and w3_ew == 0.0 else
+                     "進捗率に応じてEnsembleとv2.1をブレンドしています。")
+        model_expl = (v3cand.get("explanation", {}) or {}).get("text", "")
+        st.markdown(
+            "<div class='mfc-sec' style='opacity:.72'>Challenger モデル v3（検証中）"
+            "<span style='font-size:10px;font-weight:800;letter-spacing:1.6px;color:#9AA3B0;"
+            "border:1px solid #cfd6df;border-radius:999px;padding:2px 9px;margin-left:10px;"
+            "vertical-align:middle;'>CHALLENGER · SHADOW</span></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div style='background:#f4f6f9;border:1px solid #dde3ea;border-left:3px solid #9AA3B0;"
+            "border-radius:10px;padding:14px 18px;color:#3a4658;'>"
+            "<div style='font-size:12px;font-weight:800;color:#8a94a3;letter-spacing:.4px;margin-bottom:8px;'>"
+            "検証中のChallengerモデル（現在の正式な基準予測ではありません）</div>"
+            "<div style='display:flex;flex-wrap:wrap;gap:22px;align-items:baseline;'>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>正式基準 v2.1</div>"
+            f"<div style='font-size:18px;font-weight:800;color:#5a6472;'>{intv(w3_v21)}<small style='font-size:11px'>円</small></div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>v3(Challenger)予測</div>"
+            f"<div style='font-size:18px;font-weight:800;color:#3a4658;'>{intv(w3_total)}<small style='font-size:11px'>円</small></div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>v2.1との差額</div>"
+            f"<div style='font-size:16px;font-weight:800;color:#B08A4E;'>{diff_txt}</div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>進捗率</div>"
+            f"<div style='font-size:16px;font-weight:800;color:#5a6472;'>{prog_pct}</div></div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>重み（Ensemble / v2.1）</div>"
+            f"<div style='font-size:16px;font-weight:800;color:#5a6472;'>{w3_ew} / {w3_vw}</div></div>"
+            "</div>"
+            f"<div style='font-size:11.5px;color:#6b7686;line-height:1.6;margin-top:10px;'>"
+            f"<b style='color:#8a94a3;'>暫定予測区間：</b>"
+            f"80% {intv(i80l)} 〜 {intv(i80h)}円 ／ 90% {intv(i90l)} 〜 {intv(i90h)}円"
+            "<span style='color:#8a94a3;'>（予測区間は暫定較正中）</span></div>"
+            f"<div style='font-size:11px;color:#6b7686;line-height:1.6;margin-top:6px;'>"
+            f"<b style='color:#8a94a3;'>モデル説明：</b>{model_expl}</div>"
+            f"<div style='font-size:11px;color:#6b7686;margin-top:4px;'>{same_note} 基準日 {v3cand.get('as_of_date','—')}</div>"
+            "<div style='font-size:11px;color:#8a94a3;margin-top:8px;font-weight:700;'>"
+            "※ v3は検証中の候補モデルです。現在の正式な基準予測ではありません。</div>"
+            "</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(
+            "<div class='mfc-note' style='opacity:.6'>Challenger モデル v3（検証中）：本日のv3は未生成のため非表示。</div>",
             unsafe_allow_html=True)
 
     # ===== 昨日〆時点の進捗（当年 → 前年同日 → 前年差 → 月末着地）=====
