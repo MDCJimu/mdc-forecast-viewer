@@ -1,0 +1,25 @@
+{
+  "target_month": "2026-07",
+  "as_of_date": "2026-08-02",
+  "generated_at": "2026-08-02 08:45:32",
+  "forecast_mode": "日次ローリング予測",
+  "resec_data_status": "反映済み",
+  "apotool_data_status": "未反映",
+  "actual_data_through": "2026-08-01",
+  "reservation_data_through": null,
+  "model_version": "MDC Forecast Model v2.0",
+  "model_roles": {
+    "forecast_display_model": "MDC Forecast Model v2.0",
+    "evaluation_champion_model": "MDC Forecast Model v2.1",
+    "evaluation_champion_status": "approved_evaluation_champion_not_deployed",
+    "challenger_model": "MDC Forecast Engine v3",
+    "challenger_status": "shadow",
+    "care_component_version": "care-v2.0-post_revision_202606",
+    "production_code_hash": "a4400a2d5f238dd879ea1ad9cd30ae127b3d511a390690943b34a7fbe810ed12",
+    "note": "forecast_display_model がこの画面の基準予測。evaluation_champion_model は評価上の Champion として承認済みだが本番未採用で、シャドーではない。シャドー運用は challenger_model のみ"
+  },
+  "code_release_status": "approved",
+  "production_code_hash": "a4400a2d5f238dd879ea1ad9cd30ae127b3d511a390690943b34a7fbe810ed12",
+  "pipeline_exit_code": 0,
+  "for_cloud_viewer": true
+}
