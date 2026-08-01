@@ -263,10 +263,14 @@ def _render_model_roles(roll):
     r = _roles(roll)
     if not r:
         return
+    ec = r.get("evaluation_champion_model")
+    ec_status = r.get("evaluation_champion_status")
+    ch = r.get("challenger_model")
+    ch_status = r.get("challenger_status")
     items = [
         ("この画面の基準予測", r.get("forecast_display_model")),
-        ("Champion（学習ループ側・画面の基準ではない）", r.get("champion_model")),
-        ("Challenger（検証中・シャドー）", r.get("challenger_model")),
+        ("評価Champion（本番未採用）", f"{ec}（{ec_status}）" if ec and ec_status else ec),
+        ("Challenger（シャドー）", f"{ch}（{ch_status}）" if ch and ch_status else ch),
         ("介護コンポーネント", r.get("care_component_version")),
     ]
     rows = "".join(
@@ -280,8 +284,9 @@ def _render_model_roles(roll):
         st.markdown(
             "<div style='font-size:11.5px;line-height:1.9;'>" + rows +
             "<div style='color:#9AA3B0;margin-top:8px;'>"
-            "Champion・Challenger は検証上の役割で、この画面の基準予測とは別物。"
-            "基準予測を差し替えるには別途の承認が必要。</div></div>",
+            "評価Champion は検証上の役割で、承認済みだが本番の基準予測には未採用。"
+            "シャドー運用は Challenger のみ。基準予測を差し替えるには別途の承認が必要。"
+            "</div></div>",
             unsafe_allow_html=True)
 
 
@@ -631,7 +636,7 @@ def render(month, snap, nav=None):
 
     meta = read_json(os.path.join(snap_dir, F_META)) or {}
     roll = read_json(os.path.join(snap_dir, F_ROLL)) or {}
-    # シャドーモデル v2.1（参考・任意）。無ければ None（基準予測表示には影響しない）。
+    # 評価Champion v2.1（本番未採用・任意）。無ければ None（基準予測表示には影響しない）。
     candidate = read_json(os.path.join(snap_dir, "candidate_forecast_v21.json"))
     # Challenger v3（参考・任意）。latest→snap_dir→candidate_forecast_v3.json。無ければ None。
     v3cand = read_json(os.path.join(snap_dir, "candidate_forecast_v3.json"))
@@ -781,7 +786,7 @@ def render(month, snap, nav=None):
         "<div class='mfc-note'>実績のある日数には、予定外に実績が入った日を含みます。予定診療日数とは一致しない場合があります。</div>",
         unsafe_allow_html=True)
 
-    # ===== 参考モデル v2.1（検証中・シャドー）=====
+    # ===== 評価Champion v2.1（承認済み・本番未採用。シャドーではない）=====
     #   基準予測（ヒーロー/①）は一切変更しない。候補JSONがある時のみ控えめな参考カードを表示。
     if candidate and candidate.get("model_status") == "shadow":
         c_cur = fnum(candidate.get("current_model_forecast_total"))
@@ -796,19 +801,20 @@ def render(month, snap, nav=None):
                   f"物販の一律補正を廃止（約{sman(fnum(d.get('product_adjust_removed')))}万）。"
                   f"件数（来院・患者・初診）の見込みは現行のまま変更なし。")
         st.markdown(
-            "<div class='mfc-sec' style='opacity:.72'>参考モデル v2.1（検証中）"
+            "<div class='mfc-sec' style='opacity:.72'>評価Champion v2.1（本番未採用）"
             "<span style='font-size:10px;font-weight:800;letter-spacing:1.6px;color:#9AA3B0;"
             "border:1px solid #cfd6df;border-radius:999px;padding:2px 9px;margin-left:10px;"
-            "vertical-align:middle;'>SHADOW · 参考</span></div>", unsafe_allow_html=True)
+            "vertical-align:middle;'>評価Champion · 本番未採用</span></div>",
+            unsafe_allow_html=True)
         st.markdown(
             "<div style='background:#f4f6f9;border:1px solid #dde3ea;border-left:3px solid #9AA3B0;"
             "border-radius:10px;padding:14px 18px;color:#3a4658;'>"
             "<div style='font-size:12px;font-weight:800;color:#8a94a3;letter-spacing:.4px;margin-bottom:8px;'>"
-            "検証中の候補モデル（現在の基準予測ではありません）</div>"
+            "評価上のChampionとして承認済み。現在の基準予測には採用していません</div>"
             "<div style='display:flex;flex-wrap:wrap;gap:22px;align-items:baseline;'>"
             f"<div><div style='font-size:10.5px;color:#8a94a3;'>現行基準予測 v2.0</div>"
             f"<div style='font-size:19px;font-weight:800;color:#5a6472;'>{manv(c_cur)}<small style='font-size:11px'>万円</small></div></div>"
-            f"<div><div style='font-size:10.5px;color:#8a94a3;'>v2.1候補予測</div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>v2.1予測（本番未採用）</div>"
             f"<div style='font-size:19px;font-weight:800;color:#3a4658;'>{manv(c_can)}<small style='font-size:11px'>万円</small></div></div>"
             f"<div><div style='font-size:10.5px;color:#8a94a3;'>差額</div>"
             f"<div style='font-size:16px;font-weight:800;color:#B08A4E;'>{sman(c_diff)}<small style='font-size:11px'>万円</small></div></div>"
@@ -820,19 +826,19 @@ def render(month, snap, nav=None):
             f"<div style='font-size:11.5px;color:#6b7686;line-height:1.6;margin-top:10px;'>"
             f"<b style='color:#8a94a3;'>差が出る主な理由：</b>{reason}</div>"
             "<div style='font-size:11px;color:#8a94a3;margin-top:8px;font-weight:700;'>"
-            "※ v2.1は検証中の候補モデルです。現在の基準予測ではありません。</div>"
+            "※ v2.1は評価上のChampionとして承認済みですが、現在の基準予測には採用していません。</div>"
             "</div>", unsafe_allow_html=True)
     else:
         # 候補JSONが無い日は、参考カードを出さない（アプリは落とさない）。
         st.markdown(
-            "<div class='mfc-note' style='opacity:.6'>参考モデル v2.1（検証中）：この基準日では候補モデル未生成のため非表示。</div>",
+            "<div class='mfc-note' style='opacity:.6'>評価Champion v2.1（本番未採用）：この基準日では未生成のため非表示。</div>",
             unsafe_allow_html=True)
 
     # ===== Challenger モデル v3（検証中・シャドー）=====
     #   画面の基準予測（ヒーロー）は forecast_display_model = v2.0系。
-    #   v2.1 は学習ループ側の Champion 候補で、この画面ではシャドー表示。
-    #   v3 は Challenger シャドー。v3カードは v2.1 を「比較基準」として並べるだけで、
-    #   画面の基準予測を置き換えない。名称の役割は下部の「モデルの役割」に明示する。
+    #   v2.1 は評価上の Champion として承認済みだが本番未採用。シャドーではない。
+    #   シャドー運用は v3 だけ。v3カードは v2.1 を「比較基準」として並べるだけで、
+    #   画面の基準予測を置き換えない。名称の役割は「モデルの役割」に明示する。
     if v3cand and v3cand.get("model_status") == "shadow":
         w3_total = fnum(v3cand.get("forecast_total"))
         w3_v21 = fnum(v3cand.get("v21_forecast_total"))
@@ -868,7 +874,7 @@ def render(month, snap, nav=None):
             "<div style='font-size:12px;font-weight:800;color:#8a94a3;letter-spacing:.4px;margin-bottom:8px;'>"
             "検証中のChallengerモデル（現在の正式な基準予測ではありません）</div>"
             "<div style='display:flex;flex-wrap:wrap;gap:22px;align-items:baseline;'>"
-            f"<div><div style='font-size:10.5px;color:#8a94a3;'>比較基準 v2.1（Champion候補・シャドー）</div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>比較基準 v2.1（評価Champion・本番未採用）</div>"
             f"<div style='font-size:18px;font-weight:800;color:#5a6472;'>{intv(w3_v21)}<small style='font-size:11px'>円</small></div></div>"
             f"<div><div style='font-size:10.5px;color:#8a94a3;'>v3(Challenger)予測</div>"
             f"<div style='font-size:18px;font-weight:800;color:#3a4658;'>{intv(w3_total)}<small style='font-size:11px'>円</small></div></div>"
