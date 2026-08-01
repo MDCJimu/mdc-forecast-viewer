@@ -97,20 +97,27 @@ cloud_deploy/
 
 ```bash
 cd cloud_deploy
+# 閲覧パスワードは環境変数で渡す。値をシェル履歴・スクリプト・ログに残さないこと。
 py -m streamlit run streamlit_app.py
 ```
 
-初期パスワード（secrets/環境変数が未設定のとき）：`mdc202607`
-
 ---
 
-## パスワード保護
+## パスワード保護（fail-closed）
 
-閲覧パスワードは次の優先順で決まります。
+閲覧パスワードは `MDC_PREVIEW_PASSWORD` だけで決まります。
 
-1. `st.secrets["VIEW_PASSWORD"]`（Streamlit Community Cloud の Secrets）
-2. 環境変数 `VIEW_PASSWORD`
-3. どちらも無い場合は仮パスワード `mdc202607`
+1. `st.secrets["MDC_PREVIEW_PASSWORD"]`（Streamlit Community Cloud の Secrets）
+2. 環境変数 `MDC_PREVIEW_PASSWORD`
+
+**どちらも設定されていない場合、画面は表示されません。**
+既定値・仮パスワードへのフォールバックはありません。
+
+パスワードの値をコード・README・ログ・Git に書かないでください。
+設定は Streamlit Cloud の Secrets 画面でのみ行います。
+
+> 以前このリポジトリには固定のフォールバックパスワードが記載されていました。
+> 公開済みのため無効とみなし、削除しています。新しい値は必ず Secrets で設定してください。
 
 ---
 
@@ -119,7 +126,7 @@ py -m streamlit run streamlit_app.py
 1. GitHub に `cloud_deploy` の中身をアップロード
 2. [share.streamlit.io](https://share.streamlit.io/) にログイン → New app
 3. Main file path：`streamlit_app.py`（サブフォルダにした場合は `cloud_deploy/streamlit_app.py`）
-4. Advanced settings → Secrets に `VIEW_PASSWORD = "任意のパスワード"`
+4. Advanced settings → Secrets に `MDC_PREVIEW_PASSWORD` を設定（値はここに記載しない）
 5. Deploy → 発行URLを院長に共有
 
 ---

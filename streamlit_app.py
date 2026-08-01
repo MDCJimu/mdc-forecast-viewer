@@ -28,6 +28,7 @@ MDC Forecast Console — クラウド閲覧専用版（日次ローリング予�
 """
 import os
 import re
+import hmac
 import json
 import csv
 import html as _html
@@ -42,7 +43,10 @@ APP_BUILD = "2026-07-10e portfolio-forecast"
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
-FALLBACK_PW = "mdc202607"
+
+# 閲覧パスワードは Streamlit Cloud の Secrets（または環境変数）でのみ与える。
+# コード・README・ログに秘密値を書かない。未設定なら閲覧を許可しない（fail-closed）。
+PW_KEY = "MDC_PREVIEW_PASSWORD"
 
 F_XLSX = "dashboard_v3.xlsx"
 F_SUMMARY = "dashboard_v3_summary.md"
@@ -246,12 +250,19 @@ def parse_actions_from_md(text):
 # パスワード保護
 # ======================================================================
 def expected_password():
+    """設定された閲覧パスワードを返す。未設定なら None。
+
+    fail-closed 方針: 固定値へのフォールバックは持たない。
+    Secrets も環境変数も無い場合は None を返し、呼び出し側が閲覧を拒否する。
+    """
     try:
-        if "VIEW_PASSWORD" in st.secrets:
-            return str(st.secrets["VIEW_PASSWORD"])
+        v = st.secrets.get(PW_KEY)
+        if v is not None and str(v) != "":
+            return str(v)
     except Exception:
         pass
-    return os.environ.get("VIEW_PASSWORD") or FALLBACK_PW
+    v = os.environ.get(PW_KEY)
+    return v if v else None
 
 
 def check_password():
@@ -264,10 +275,19 @@ def check_password():
         "日次ローリング予測・クラウド閲覧専用画面</div></div>",
         unsafe_allow_html=True)
     c = st.columns([1, 2, 1])[1]
+    expected = expected_password()
+    if not expected:
+        # 未設定のまま公開されている状態。既定値では通さない。
+        with c:
+            st.error("閲覧パスワードが設定されていないため、この画面は表示できません。")
+            st.caption(
+                f"管理者向け: Streamlit Cloud の Settings → Secrets に "
+                f"`{PW_KEY}` を設定してください。設定値はここには表示されません。")
+        return False
     with c:
         pw = st.text_input("閲覧パスワード", type="password", key="_pw_input")
         if st.button("表示する", type="primary", width="stretch"):
-            if pw == expected_password():
+            if pw and hmac.compare_digest(str(pw), expected):
                 st.session_state["_authed"] = True
                 st.rerun()
             else:
