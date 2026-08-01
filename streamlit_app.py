@@ -247,6 +247,45 @@ def parse_actions_from_md(text):
 
 
 # ======================================================================
+# モデルの役割
+#   名称だけを見ると取り違えるため、役割ごとに分けて表示する。
+#     forecast_display_model : この画面の基準予測（ヒーロー数値）
+#     champion_model         : 学習ループ側の Champion。この画面の基準予測ではない
+#     challenger_model       : 検証中の Challenger（シャドー）
+#     care_component_version : 介護コンポーネントの版数
+#   古いスナップショットには model_roles が無いので、その場合は何も出さない。
+# ======================================================================
+def _roles(roll):
+    return (roll or {}).get("model_roles") or {}
+
+
+def _render_model_roles(roll):
+    r = _roles(roll)
+    if not r:
+        return
+    items = [
+        ("この画面の基準予測", r.get("forecast_display_model")),
+        ("Champion（学習ループ側・画面の基準ではない）", r.get("champion_model")),
+        ("Challenger（検証中・シャドー）", r.get("challenger_model")),
+        ("介護コンポーネント", r.get("care_component_version")),
+    ]
+    rows = "".join(
+        f"<div style='display:flex;gap:10px;'>"
+        f"<span style='color:#9AA3B0;min-width:230px;'>{k}</span>"
+        f"<span style='color:#6b7686;font-weight:700;'>{v}</span></div>"
+        for k, v in items if v)
+    if not rows:
+        return
+    with st.expander("モデルの役割", expanded=False):
+        st.markdown(
+            "<div style='font-size:11.5px;line-height:1.9;'>" + rows +
+            "<div style='color:#9AA3B0;margin-top:8px;'>"
+            "Champion・Challenger は検証上の役割で、この画面の基準予測とは別物。"
+            "基準予測を差し替えるには別途の承認が必要。</div></div>",
+            unsafe_allow_html=True)
+
+
+# ======================================================================
 # パスワード保護
 # ======================================================================
 def expected_password():
@@ -622,8 +661,10 @@ def render(month, snap, nav=None):
     st.markdown(
         f"<div class='mfc-meta'>対象月 <b>{ym_jp}</b>　·　予測基準日 <b>{as_of}</b>　·　"
         f"{meta.get('forecast_mode','日次ローリング予測')}　·　"
-        f"{roll.get('model_version','MDC Forecast Model v2.0')}　·　生成 {gen_at}　·　院内検証用・閲覧専用</div>",
+        f"{_roles(roll).get('forecast_display_model') or roll.get('model_version','MDC Forecast Model v2.0')}"
+        f"　·　生成 {gen_at}　·　院内検証用・閲覧専用</div>",
         unsafe_allow_html=True)
+    _render_model_roles(roll)
     st.markdown(
         "<div class='mfc-colkey'>"
         "<span><span class='d' style='background:#2E8B57'></span>実績</span>"
@@ -788,7 +829,10 @@ def render(month, snap, nav=None):
             unsafe_allow_html=True)
 
     # ===== Challenger モデル v3（検証中・シャドー）=====
-    #   正式基準予測(v2.1/ヒーロー)は変更しない。当日v3がある時のみ控えめな参考カードを表示。
+    #   画面の基準予測（ヒーロー）は forecast_display_model = v2.0系。
+    #   v2.1 は学習ループ側の Champion 候補で、この画面ではシャドー表示。
+    #   v3 は Challenger シャドー。v3カードは v2.1 を「比較基準」として並べるだけで、
+    #   画面の基準予測を置き換えない。名称の役割は下部の「モデルの役割」に明示する。
     if v3cand and v3cand.get("model_status") == "shadow":
         w3_total = fnum(v3cand.get("forecast_total"))
         w3_v21 = fnum(v3cand.get("v21_forecast_total"))
@@ -824,7 +868,7 @@ def render(month, snap, nav=None):
             "<div style='font-size:12px;font-weight:800;color:#8a94a3;letter-spacing:.4px;margin-bottom:8px;'>"
             "検証中のChallengerモデル（現在の正式な基準予測ではありません）</div>"
             "<div style='display:flex;flex-wrap:wrap;gap:22px;align-items:baseline;'>"
-            f"<div><div style='font-size:10.5px;color:#8a94a3;'>正式基準 v2.1</div>"
+            f"<div><div style='font-size:10.5px;color:#8a94a3;'>比較基準 v2.1（Champion候補・シャドー）</div>"
             f"<div style='font-size:18px;font-weight:800;color:#5a6472;'>{intv(w3_v21)}<small style='font-size:11px'>円</small></div></div>"
             f"<div><div style='font-size:10.5px;color:#8a94a3;'>v3(Challenger)予測</div>"
             f"<div style='font-size:18px;font-weight:800;color:#3a4658;'>{intv(w3_total)}<small style='font-size:11px'>円</small></div></div>"
