@@ -259,6 +259,165 @@ def _roles(roll):
     return (roll or {}).get("model_roles") or {}
 
 
+# ======================================================================
+# 月次ライフサイクル表示
+#   「今月どう着地しそうか」と「先月は確定したか」を別の情報として見せる。
+#   monthly_lifecycle が無い旧スナップショットは従来表示のまま（後方互換）。
+# ======================================================================
+def _lifecycle(roll, meta=None):
+    return ((roll or {}).get("monthly_lifecycle")
+            or (meta or {}).get("monthly_lifecycle") or {})
+
+
+def _ym_jp(m):
+    try:
+        return f"{int(m[:4])}年{int(m[5:7])}月"
+    except Exception:
+        return m or "—"
+
+
+def _render_month_header(roll, meta, ym_jp, as_of):
+    lc = _lifecycle(roll, meta)
+    active = lc.get("active_forecast_month")
+    if not active:
+        st.markdown(
+            f"<div class='mfc-meta'>対象月 <b>{ym_jp}</b>　·　予測基準日 <b>{as_of}</b></div>",
+            unsafe_allow_html=True)
+        return
+    stale = not lc.get("is_active_forecast_month", True)
+    note = ("<div style='font-size:11.5px;color:#B08A4E;margin-top:6px;'>"
+            f"※ この画面のデータは {_ym_jp(lc.get('this_file_target_month'))} 分です。"
+            "最新の当月データがまだ生成されていません。</div>" if stale else "")
+    st.markdown(
+        "<div style='display:flex;flex-wrap:wrap;gap:28px;align-items:flex-end;"
+        "margin:6px 0 2px;'>"
+        "<div><div style='font-size:11px;color:#8a94a3;letter-spacing:.6px;'>今月の予測</div>"
+        f"<div style='font-size:26px;font-weight:800;color:#0B1F3A;line-height:1.25;'>"
+        f"{_ym_jp(active)}</div></div>"
+        "<div><div style='font-size:11px;color:#8a94a3;letter-spacing:.6px;'>予測基準日</div>"
+        f"<div style='font-size:18px;font-weight:800;color:#3a4658;line-height:1.6;'>"
+        f"{as_of}</div></div>"
+        "</div>" + note,
+        unsafe_allow_html=True)
+
+
+def _latest_lifecycle():
+    """最新スナップショットのライフサイクル（過去実績ビュー用）。"""
+    for m in list_months():
+        snaps = list_snapshots(m)
+        for s in reversed(snaps or []):
+            d = os.path.join(DATA, m, "snapshots", s)
+            lc = _lifecycle(read_json(os.path.join(d, F_ROLL)),
+                            read_json(os.path.join(d, F_META)))
+            if lc:
+                return lc
+    return {}
+
+
+def _render_month_close_list():
+    """月ごとの締め状況。主予測から外れた月も履歴から消さずここで見られる。"""
+    lc = _latest_lifecycle()
+    months = lc.get("months") or {}
+    if not months:
+        return
+    rows = []
+    for m in sorted(months, reverse=True):
+        v = months[m]
+        if v.get("state") == "not_started":
+            continue
+        color = {"finalized": "#2E8B57", "provisional_close": "#B08A4E",
+                 "forecasting": "#2F6BD6"}.get(v.get("state"), "#8a94a3")
+        note = " / ".join(v.get("pending_labels") or [])
+        rows.append(
+            f"<div style='display:flex;gap:14px;align-items:baseline;padding:3px 0;'>"
+            f"<span style='min-width:92px;color:#3a4658;font-weight:700;'>{_ym_jp(m)}</span>"
+            f"<span style='min-width:84px;color:{color};font-weight:800;'>"
+            f"{v.get('state_label')}</span>"
+            f"<span style='color:#8a94a3;'>{note}</span></div>")
+    st.markdown(
+        "<div style='background:#f7f8fa;border:1px solid #e3e7ee;border-radius:10px;"
+        "padding:12px 16px;margin:6px 0 14px;font-size:12px;'>"
+        "<div style='font-size:11px;color:#8a94a3;font-weight:800;letter-spacing:.4px;"
+        "margin-bottom:6px;'>月次の締め状況</div>" + "".join(rows) +
+        "<div style='color:#9AA3B0;margin-top:8px;'>"
+        "暫定締めの月は実績が未確定です。確定すると『実績確定』へ変わります。</div></div>",
+        unsafe_allow_html=True)
+
+
+def _render_forecast_composition(roll):
+    """着地見込みの内訳を、意味の違う3つに分けて出す。
+
+    「実績」と表示してよいのは confirmed_actual だけ。訪問保険・介護の月末見込みは
+    確度が高くても実績ではないので『確度の高い見込み』として別に出す。
+    forecast_composition が無い旧スナップショットでは何も出さない（後方互換）。
+    """
+    fc = (roll or {}).get("forecast_composition") or {}
+    if not fc:
+        return
+    lab = fc.get("labels") or {}
+    through = fc.get("confirmed_actual_through")
+    not_imported = (fc.get("actual_data_status") == "not_yet_imported")
+    if not_imported:
+        actual_note = "当月レセコンデータ未取込（実績が0だったのではありません）"
+    elif through:
+        actual_note = f"レセコン計上済み（〜{through}）"
+    else:
+        actual_note = "当月のレセコン実績は未取得"
+    items = [
+        ("confirmed_actual", lab.get("confirmed_actual", "確定実績"), "#2E8B57",
+         actual_note),
+        ("locked_or_expected", lab.get("locked_or_expected", "確度の高い見込み"), "#B08A4E",
+         "訪問保険・介護の月末見込み（実績ではありません）"),
+        ("remaining_forecast", lab.get("remaining_forecast", "残り予測"), "#2F6BD6",
+         "経過未反映＋残り期間の見込み"),
+    ]
+    cells = "".join(
+        f"<div style='flex:1 1 180px;'>"
+        f"<div style='font-size:10.5px;color:#8a94a3;'>{name}</div>"
+        f"<div style='font-size:19px;font-weight:800;color:{color};line-height:1.35;'>"
+        f"{manv(fnum(fc.get(key)))}<span style='font-size:11px;'>万円</span></div>"
+        f"<div style='font-size:10.5px;color:#9AA3B0;'>{note}</div></div>"
+        for key, name, color, note in items)
+    st.markdown(
+        "<div style='background:#fff;border:1px solid #e3e7ee;border-radius:12px;"
+        "padding:13px 18px;margin:8px 0 4px;'>"
+        "<div style='font-size:11px;color:#8a94a3;font-weight:800;letter-spacing:.4px;"
+        "margin-bottom:8px;'>着地見込みの内訳</div>"
+        f"<div style='display:flex;flex-wrap:wrap;gap:22px;'>{cells}"
+        f"<div style='flex:1 1 180px;'>"
+        f"<div style='font-size:10.5px;color:#8a94a3;'>"
+        f"{lab.get('total_forecast', '現時点着地見込み')}</div>"
+        f"<div style='font-size:19px;font-weight:800;color:#0B1F3A;line-height:1.35;'>"
+        f"{manv(fnum(fc.get('total_forecast')))}<span style='font-size:11px;'>万円</span></div>"
+        f"<div style='font-size:10.5px;color:#9AA3B0;'>3つの合計</div></div></div>"
+        "<div style='font-size:11px;color:#9AA3B0;margin-top:9px;'>"
+        "『確定実績』はレセコンで計上済みの金額だけです。"
+        "訪問保険・介護の見込みは実績に含めていません。</div></div>",
+        unsafe_allow_html=True)
+
+
+def _render_prev_month_close(roll, meta=None):
+    """前月の締め状況。主画面の『今月の予測』とは別枠で出す。"""
+    lc = _lifecycle(roll, meta)
+    prev = lc.get("previous_month")
+    if not prev:
+        return
+    status = lc.get("previous_month_close_status")
+    label = lc.get("previous_month_close_label") or status
+    reasons = lc.get("previous_month_pending_labels") or []
+    finalized = (status == "finalized")
+    color = "#2E8B57" if finalized else "#B08A4E"
+    body = (f"<span style='color:{color};font-weight:800;'>{label}</span>"
+            + (f"<span style='color:#6b7686;'>　{' / '.join(reasons)}</span>"
+               if reasons else ""))
+    st.markdown(
+        "<div style='background:#f7f8fa;border:1px solid #e3e7ee;border-left:3px solid "
+        f"{color};border-radius:8px;padding:9px 14px;margin:8px 0 2px;font-size:12px;'>"
+        "<span style='color:#8a94a3;font-weight:800;letter-spacing:.4px;'>前月の締め状況</span>"
+        f"　<b style='color:#3a4658;'>{_ym_jp(prev)}</b>　{body}</div>",
+        unsafe_allow_html=True)
+
+
 def _render_model_roles(roll):
     r = _roles(roll)
     if not r:
@@ -663,12 +822,13 @@ def render(month, snap, nav=None):
     if nav:
         nav()
 
+    _render_month_header(roll, meta, ym_jp, as_of)
     st.markdown(
-        f"<div class='mfc-meta'>対象月 <b>{ym_jp}</b>　·　予測基準日 <b>{as_of}</b>　·　"
-        f"{meta.get('forecast_mode','日次ローリング予測')}　·　"
+        f"<div class='mfc-meta'>{meta.get('forecast_mode','日次ローリング予測')}　·　"
         f"{_roles(roll).get('forecast_display_model') or roll.get('model_version','MDC Forecast Model v2.0')}"
         f"　·　生成 {gen_at}　·　院内検証用・閲覧専用</div>",
         unsafe_allow_html=True)
+    _render_prev_month_close(roll, meta)
     _render_model_roles(roll)
     st.markdown(
         "<div class='mfc-colkey'>"
@@ -920,6 +1080,8 @@ def render(month, snap, nav=None):
         f"<div class='big'>{manv(cur)}<span class='u'>万円</span></div>"
         f"<div class='py'>保守 {man(cons)}／前年月末 {man(py)}<br>{beats_word}</div></div>"
         "</div>", unsafe_allow_html=True)
+
+    _render_forecast_composition(roll)
     cal_cls = "red" if (yoy_td is not None and yoy_td < 0) else "green"
     biz_cls = "green" if (biz_diff is not None and biz_diff >= 0) else "red"
     st.markdown(
@@ -1426,6 +1588,8 @@ def render_history(nav=None):
     if nav:
         nav()
 
+    _render_month_close_list()
+
     if df is None or df.empty:
         st.warning("過去実績データがありません。"
                    "ローカルで scripts/build_history_aggregates.py を実行し、"
@@ -1907,19 +2071,31 @@ def _load_pf_forecast(path, _mtime):
 
 
 def read_pf_forecast():
-    """最新スナップショットの portfolio_forecast.json を読む。無ければ None。"""
-    for month in list_months():
-        latest = read_json(os.path.join(DATA, month, F_LATEST)) or {}
-        snap = os.path.basename(str(latest.get("latest_snapshot_dir", "")).rstrip("/"))
-        if not snap:
-            continue
-        p = os.path.join(DATA, month, "snapshots", snap, F_PF_FORECAST)
-        if os.path.isfile(p):
-            try:
-                return _load_pf_forecast(p, os.path.getmtime(p))
-            except Exception:
-                return None
-    return None
+    """**当月**（active_forecast_month）の portfolio_forecast.json だけを読む。
+
+    以前は全月を新しい順に走査して最初に見つかったものを返していたため、
+    当月分が未生成だと前月のポートフォリオを「当月見込み」として表示していた。
+    前月データを当月として代用しない。当月分が無ければ None（＝データなし表示）。
+    """
+    months = list_months()
+    if not months:
+        return None
+    lc = _latest_lifecycle()
+    active = lc.get("active_forecast_month")
+    folder = active.replace("-", "_") if active else months[0]
+    if folder not in months:
+        return None
+    latest = read_json(os.path.join(DATA, folder, F_LATEST)) or {}
+    snap = os.path.basename(str(latest.get("latest_snapshot_dir", "")).rstrip("/"))
+    if not snap:
+        return None
+    p = os.path.join(DATA, folder, "snapshots", snap, F_PF_FORECAST)
+    if not os.path.isfile(p):
+        return None
+    try:
+        return _load_pf_forecast(p, os.path.getmtime(p))
+    except Exception:
+        return None
 
 
 def last_pf_forecast_asof():

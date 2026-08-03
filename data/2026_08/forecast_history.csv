@@ -1,0 +1,2 @@
+﻿target_month,as_of_date,generated_at,current_forecast_total,normal_baseline_forecast,gap_to_normal_baseline,previous_year_actual,yoy_diff,yoy_rate,forecast_low_80,forecast_high_80,insurance_forecast,selfpay_forecast,product_forecast,high_value_selfpay_low,high_value_selfpay_high,pipeline_status
+2026-08,2026-08-03,2026-08-03 19:12:15,20865415,22032383,-1166968,21805410,-939995,-4.3,18872795,22161227,13694522,6925619,245273,0,0,OK
