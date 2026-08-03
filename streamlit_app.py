@@ -314,6 +314,77 @@ def _latest_lifecycle():
     return {}
 
 
+def _render_single_month(df):
+    """単月閲覧。終了した月は確定前（暫定締め）でも選べる。
+
+    期間集計とは別ロジック。「確定していないから単月でも見せない」にはしない。
+    未取得の区分は0円と断定せず『未取得』と出す。
+    """
+    months = list(df["年月"])
+    if not months:
+        return
+    has_status = "close_status" in df.columns
+    st.markdown("<div class='mfc-tier'><span class='n'>Month</span>1か月の結果を見る</div>",
+                unsafe_allow_html=True)
+    c1, _ = st.columns([1.2, 2])
+    with c1:
+        sel = st.selectbox("年月", list(reversed(months)), index=0, key="hist_single")
+    row = df[df["年月"] == sel].iloc[0]
+    status = str(row["close_status"]) if has_status else "finalized"
+    prov = (status == "provisional_close")
+    label = "暫定締め" if prov else "実績確定"
+    color = "#B08A4E" if prov else "#2E8B57"
+    # 空欄は pandas が NaN にするので、文字列化した "nan" を未取得と誤読しない
+    _mv = row.get("未取得区分")
+    _mv = "" if _mv is None or (isinstance(_mv, float) and _mv != _mv) else str(_mv)
+    missing = [s for s in _mv.split(";") if s and s.lower() != "nan"]
+
+    st.markdown(
+        f"<div style='display:flex;gap:16px;align-items:baseline;margin:2px 0 8px;'>"
+        f"<span style='font-size:22px;font-weight:800;color:#0B1F3A;'>{_ym_jp(sel)}</span>"
+        f"<span style='font-size:13px;font-weight:800;color:{color};'>{label}</span>"
+        + (f"<span style='font-size:11.5px;color:#B08A4E;'>"
+           f"{'・'.join(missing)}は未取得（確定値ではありません）</span>" if missing else "")
+        + "</div>", unsafe_allow_html=True)
+
+    # 未取得の区分は列名ではなく表示名で持っている（介護 → 介護売上）
+    MISS_COL = {"介護": "介護売上", "当月レセコン": "月間総売上"}
+    miss_cols = {MISS_COL.get(m, m) for m in missing}
+
+    def money(name, col):
+        v = ("未取得" if col in miss_cols
+             else f"{manv(fnum(row.get(col)))}<span style='font-size:11px;'>万円</span>")
+        c = "#B08A4E" if col in miss_cols else "#3a4658"
+        return (f"<div style='flex:1 1 148px;'>"
+                f"<div style='font-size:10.5px;color:#8a94a3;'>{name}</div>"
+                f"<div style='font-size:18px;font-weight:800;color:{c};"
+                f"line-height:1.35;'>{v}</div></div>")
+
+    def num(name, col, unit):
+        return (f"<div style='flex:1 1 128px;'>"
+                f"<div style='font-size:10.5px;color:#8a94a3;'>{name}</div>"
+                f"<div style='font-size:18px;font-weight:800;color:#3a4658;"
+                f"line-height:1.35;'>{fnum(row.get(col)):,.0f}"
+                f"<span style='font-size:11px;'>{unit}</span></div></div>")
+
+    cells = "".join([money("総売上", "月間総売上"), money("保険売上", "保険診療売上"),
+                     money("外来保険", "外来保険売上"), money("訪問保険", "訪問保険売上"),
+                     money("介護", "介護売上"), money("自費", "自費診療売上"),
+                     money("物販", "物販売上"),
+                     num("患者数", "総患者数", "人"), num("来院回数", "総来院回数", "回"),
+                     num("初診数", "初診件数", "件"), num("診療日数", "診療日数", "日")])
+    foot = ("暫定締めのため実績は確定していません。"
+            + (f"{'・'.join(missing)}のデータが未取得です。" if missing else "")
+            ) if prov else ""
+    st.markdown(
+        "<div style='background:#fff;border:1px solid #e3e7ee;border-radius:12px;"
+        "padding:14px 18px;margin:4px 0 16px;display:flex;flex-wrap:wrap;gap:18px;'>"
+        + cells + "</div>"
+        + (f"<div style='font-size:11px;color:#B08A4E;margin:-10px 0 14px;'>{foot}</div>"
+           if foot else ""),
+        unsafe_allow_html=True)
+
+
 def _render_month_close_list():
     """月ごとの締め状況。主予測から外れた月も履歴から消さずここで見られる。"""
     lc = _latest_lifecycle()
@@ -1597,11 +1668,31 @@ def render_history(nav=None):
         return
 
     meta = read_json(hist_path(F_HISTORY_META)) or {}
-    months = list(df["年月"])
+
+    # 単月閲覧と期間集計は別ロジック。
+    #   単月閲覧 : 暫定締めの月も選べる（終了した月は確定前でも結果を見られる）
+    #   期間集計 : 既定は確定月のみ。暫定月を混ぜたいときだけ明示的に選ぶ
+    all_months = list(df["年月"])
+    _has_status = "close_status" in df.columns
+    fin_df = df[df["close_status"] == "finalized"] if _has_status else df
+    fin_months = list(fin_df["年月"])
+
+    _render_single_month(df)
 
     # ---- 期間選択 ----
-    st.markdown("<div class='mfc-tier'><span class='n'>Period</span>期間を選ぶ</div>",
+    st.markdown("<div class='mfc-tier'><span class='n'>Period</span>期間を集計する</div>",
                 unsafe_allow_html=True)
+    include_prov = False
+    if _has_status and len(all_months) > len(fin_months):
+        include_prov = st.checkbox(
+            "暫定締め月を含める", value=False, key="hist_include_prov",
+            help="暫定締めの月は実績が未確定です。既定では期間集計に含めません。")
+    agg_df = df if include_prov else fin_df
+    months = list(agg_df["年月"])
+    if not months:
+        st.warning("期間集計に使える確定月がありません。")
+        return
+
     c1, c2, c3 = st.columns([1.2, 1, 1])
     with c1:
         choice = st.selectbox("期間", ["直近12か月", "今年度", "昨年度", "全期間", "任意期間"],
@@ -1617,18 +1708,25 @@ def render_history(nav=None):
         custom = (s_sel, e_sel) if s_sel <= e_sel else (e_sel, s_sel)
 
     lo, hi = period_bounds(choice, months, custom)
-    p = df[(df["年月"] >= lo) & (df["年月"] <= hi)]
+    p = agg_df[(agg_df["年月"] >= lo) & (agg_df["年月"] <= hi)]
 
     if p.empty:
-        st.warning(f"選択した期間（{lo} 〜 {hi}）に該当する確定月がありません。"
+        st.warning(f"選択した期間（{lo} 〜 {hi}）に該当する月がありません。"
                    f"収録範囲は {months[0]} 〜 {months[-1]} です。")
         return
 
     a_lo, a_hi = p["年月"].iloc[0], p["年月"].iloc[-1]
+    _prov_in_p = (list(p.loc[p["close_status"] == "provisional_close", "年月"])
+                  if _has_status else [])
+    _scope = ("暫定値を含みます（" + "・".join(_ym_jp(m) for m in _prov_in_p) + "）"
+              if _prov_in_p else "確定月のみ")
+    _scope_color = "#B08A4E" if _prov_in_p else "#8a94a3"
     st.markdown(f"<div class='mfc-meta'>対象期間 <b>{a_lo} 〜 {a_hi}</b>（{len(p)}か月）"
-                f"｜収録範囲 {months[0]} 〜 {months[-1]}"
-                f"｜{'確定月のみ' if meta.get('確定月のみ') else ''}</div>",
+                f"｜収録範囲 {all_months[0]} 〜 {all_months[-1]}"
+                f"｜<span style='color:{_scope_color};font-weight:800;'>{_scope}</span></div>",
                 unsafe_allow_html=True)
+    # 集計に使う前年同期も同じ範囲から取る（暫定月の混入条件をそろえる）
+    df = agg_df
 
     # ---- 前年同期 ----
     want = [shift_ym(m, -12) for m in p["年月"]]
