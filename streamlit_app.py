@@ -1509,7 +1509,14 @@ def hist_path(name):
 
 
 @st.cache_data(show_spinner=False)
-def _load_actuals(_mtime):
+def _load_actuals(mtime):
+    """月次実績を読む。引数 mtime はキャッシュ無効化のためだけに受け取る。
+
+    **引数名を _ で始めないこと。** st.cache_data は `_` 始まりの引数を
+    ハッシュ対象から除外するため、`_mtime` にするとキャッシュキーが実質固定になり、
+    ファイルを更新してもプロセスが生きている限り古い内容を返し続ける。
+    実際、これが原因で更新済みの月が画面に現れなかった。
+    """
     import pandas as pd
     df = pd.read_csv(hist_path(F_MONTHLY_ACTUALS), encoding="utf-8-sig")
     return df.sort_values("年月").reset_index(drop=True)
@@ -1817,7 +1824,7 @@ def render_history(nav=None):
 #   data/history/portfolio_monthly.csv（月次×4分類の集計済み金額）だけを読む。
 # ======================================================================
 @st.cache_data(show_spinner=False)
-def _load_portfolio(_mtime):
+def _load_portfolio(mtime):      # 引数名を _ で始めないこと（下の注記参照）
     import pandas as pd
     df = pd.read_csv(hist_path(F_PORTFOLIO), encoding="utf-8-sig")
     return df.sort_values(["年月", "分類コード"]).reset_index(drop=True)
@@ -2164,7 +2171,7 @@ def pf_select_period(months):
 
 
 @st.cache_data(show_spinner=False)
-def _load_pf_forecast(path, _mtime):
+def _load_pf_forecast(path, mtime):   # 引数名を _ で始めないこと（下の注記参照）
     return read_json(path)
 
 
