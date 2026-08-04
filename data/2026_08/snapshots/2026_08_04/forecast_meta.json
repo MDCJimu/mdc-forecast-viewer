@@ -27,12 +27,10 @@
     "previous_month_close_status": "provisional_close",
     "previous_month_close_label": "暫定締め",
     "previous_month_pending_reasons": [
-      "care_actual_missing",
-      "reconciliation_pending"
+      "actuals_not_yet_stable"
     ],
     "previous_month_pending_labels": [
-      "介護実績が未取得",
-      "元CSVとの実績照合が通っていない"
+      "実績がまだ安定していない"
     ],
     "months": {
       "2026-08": {
@@ -45,12 +43,10 @@
         "state": "provisional_close",
         "state_label": "暫定締め",
         "pending_reasons": [
-          "care_actual_missing",
-          "reconciliation_pending"
+          "actuals_not_yet_stable"
         ],
         "pending_labels": [
-          "介護実績が未取得",
-          "元CSVとの実績照合が通っていない"
+          "実績がまだ安定していない"
         ]
       },
       "2026-06": {
@@ -60,10 +56,14 @@
         "pending_labels": []
       },
       "2026-05": {
-        "state": "finalized",
-        "state_label": "実績確定",
-        "pending_reasons": [],
-        "pending_labels": []
+        "state": "provisional_close",
+        "state_label": "暫定締め",
+        "pending_reasons": [
+          "reconciliation_pending"
+        ],
+        "pending_labels": [
+          "元CSVとの実績照合が通っていない"
+        ]
       },
       "2026-04": {
         "state": "finalized",
