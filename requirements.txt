@@ -1,4 +1,8 @@
 streamlit==1.58.0
+# streamlit 1.58.0 の GZip ミドルウェアは Starlette の旧 GZipResponder シグネチャを呼ぶ。
+# Starlette 1.4.0 が thread_minimum_size を必須にしたため、未固定だと Cloud の再構築で
+# 1.4.0 が入り health check が 500 になる。streamlit 側が追従するまでここを上げないこと。
+starlette==1.3.1
 pandas==3.0.3
 numpy==2.5.0
 pyarrow==24.0.0
