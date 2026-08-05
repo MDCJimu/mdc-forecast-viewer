@@ -1,7 +1,7 @@
 {
   "target_month": "2026-08",
   "as_of_date": "2026-08-05",
-  "generated_at": "2026-08-05 10:00:35",
+  "generated_at": "2026-08-05 19:24:24",
   "forecast_mode": "日次ローリング予測",
   "resec_data_status": "反映済み",
   "apotool_data_status": "反映済み",
@@ -24,14 +24,10 @@
     "active_forecast_status": "forecasting",
     "active_forecast_label": "2026年8月 今月の予測",
     "previous_month": "2026-07",
-    "previous_month_close_status": "provisional_close",
-    "previous_month_close_label": "暫定締め",
-    "previous_month_pending_reasons": [
-      "actuals_not_yet_stable"
-    ],
-    "previous_month_pending_labels": [
-      "実績がまだ安定していない"
-    ],
+    "previous_month_close_status": "finalized",
+    "previous_month_close_label": "実績確定",
+    "previous_month_pending_reasons": [],
+    "previous_month_pending_labels": [],
     "months": {
       "2026-08": {
         "state": "forecasting",
@@ -40,14 +36,10 @@
         "pending_labels": []
       },
       "2026-07": {
-        "state": "provisional_close",
-        "state_label": "暫定締め",
-        "pending_reasons": [
-          "actuals_not_yet_stable"
-        ],
-        "pending_labels": [
-          "実績がまだ安定していない"
-        ]
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
       },
       "2026-06": {
         "state": "finalized",
