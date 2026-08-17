@@ -962,11 +962,22 @@ def render(month, snap, nav=None):
     below = (cur is not None and py is not None and cur < py)
     yoy_word = "下回る" if below else ("上回る" if (cur is not None and py is not None and cur > py) else "ほぼ並ぶ")
     verdict_cls = "dn" if below else "up"
-    foot_word = "弱め" if (yoy_td is not None and yoy_td < 0) else "堅調"
-    biz_word = "上回り" if (biz_diff is not None and biz_diff >= 0) else "下回り"
-    month_word = "前年超え見込み" if beats else "前年に届かない見込み"
-    takeaway = (f"足元は前年同日比では<b>{foot_word}</b>だが、"
-                f"実績日数基準の前年比較では<b>{biz_word}</b>、月末は<b>{month_word}</b>。")
+    # 文言のみ。判定条件（yoy_td / biz_diff / beats）は従来のまま変えていない。
+    # 旧文は「弱めだが…下回り」のように、同じ向きの2つを逆接でつないでいて読みにくかった。
+    # 向きが揃っているときは1文にまとめ、食い違うときだけ逆接にする。
+    foot_down = (yoy_td is not None and yoy_td < 0)              # 暦の同日比
+    biz_down = not (biz_diff is not None and biz_diff >= 0)      # 実績日数基準
+    month_down = not beats                                       # 月末着地
+    foot_verb = "下回って" if foot_down else "上回って"
+    biz_verb = "下回って" if biz_down else "上回って"
+    month_verb = "下回る" if month_down else "上回る"
+    if foot_down == biz_down:
+        takeaway = f"足元の実績は、同じ経過日数で比べても<b>前年を{biz_verb}います</b>。"
+    else:
+        takeaway = (f"足元の実績は暦の同日比では前年を{foot_verb}いますが、"
+                    f"同じ経過日数で比べると<b>前年を{biz_verb}います</b>。")
+    takeaway += (f"現時点では、月末着地{'も' if month_down == biz_down else 'は'}"
+                 f"<b>前年同月を{month_verb}見込み</b>です。")
 
     actual_days = roll.get("actual_days_count") or 0
     remaining_days_count = roll.get("remaining_days_count") or 0
@@ -996,9 +1007,9 @@ def render(month, snap, nav=None):
         "<div class='mfc-act'><div class='k'>今日のアクション</div>"
         f"<div class='lead'>{takeaway}</div>"
         "<div class='rows'>"
-        "<div class='r'><span class='t'>自費売上化</span><span class='d'>高単価型の月内売上化を確認</span></div>"
-        "<div class='r'><span class='t'>来院充足</span><span class='d'>空き枠・キャンセル枠の再充填</span></div>"
-        "<div class='r'><span class='t'>訪問介護</span><span class='d'>入力遅れ分は月末見込みで別建て反映</span></div>"
+        "<div class='r'><span class='t'>自費売上化</span><span class='d'>高単価の自費案件を月内に売上化できるか確認</span></div>"
+        "<div class='r'><span class='t'>来院充足</span><span class='d'>空き枠・キャンセル枠への再予約を促進</span></div>"
+        "<div class='r'><span class='t'>訪問介護</span><span class='d'>未入力分は月末見込みに別枠で反映</span></div>"
         "</div></div>", unsafe_allow_html=True)
 
     st.markdown('<div class="mfc-sec">この見込みの前提</div>', unsafe_allow_html=True)
