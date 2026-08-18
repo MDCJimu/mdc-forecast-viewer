@@ -1,0 +1,77 @@
+{
+  "target_month": "2026-08",
+  "as_of_date": "2026-08-18",
+  "generated_at": "2026-08-18 10:08:15",
+  "forecast_mode": "日次ローリング予測",
+  "resec_data_status": "反映済み",
+  "apotool_data_status": "反映済み",
+  "actual_data_through": "2026-08-17",
+  "reservation_data_through": "2026-08-31",
+  "model_version": "MDC Forecast Model v2.0",
+  "model_roles": {
+    "forecast_display_model": "MDC Forecast Model v2.0",
+    "evaluation_champion_model": "MDC Forecast Model v2.1",
+    "evaluation_champion_status": "approved_evaluation_champion_not_deployed",
+    "challenger_model": "MDC Forecast Engine v3",
+    "challenger_status": "shadow",
+    "care_component_version": "care-v2.0-post_revision_202606",
+    "production_code_hash": "1da82ee7b1cd3b8f59dd9511d041e7b901ba247b9d165eda24559333aa1b30bd",
+    "note": "forecast_display_model がこの画面の基準予測。evaluation_champion_model は評価上の Champion として承認済みだが本番未採用で、シャドーではない。シャドー運用は challenger_model のみ"
+  },
+  "monthly_lifecycle": {
+    "as_of_date": "2026-08-18",
+    "active_forecast_month": "2026-08",
+    "active_forecast_status": "forecasting",
+    "active_forecast_label": "2026年8月 今月の予測",
+    "previous_month": "2026-07",
+    "previous_month_close_status": "finalized",
+    "previous_month_close_label": "実績確定",
+    "previous_month_pending_reasons": [],
+    "previous_month_pending_labels": [],
+    "months": {
+      "2026-08": {
+        "state": "forecasting",
+        "state_label": "今月の予測",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-07": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-06": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-05": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-04": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-03": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      }
+    },
+    "note": "active_forecast_month は as_of_date が属する年月で決まる。前月が未確定でも当月予測は止めず、前月が後から確定してもactive_forecast_month は変わらない。",
+    "is_active_forecast_month": true,
+    "this_file_target_month": "2026-08"
+  },
+  "code_release_status": "approved",
+  "production_code_hash": "1da82ee7b1cd3b8f59dd9511d041e7b901ba247b9d165eda24559333aa1b30bd",
+  "pipeline_exit_code": 0,
+  "for_cloud_viewer": true
+}
