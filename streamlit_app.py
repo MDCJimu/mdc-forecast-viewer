@@ -34,6 +34,13 @@ import csv
 import html as _html
 import streamlit as st
 
+# 経営分析の文章生成。表示専用モジュールで、予測値には触れない。
+# 読み込めない環境でも画面は落とさない（分析ブロックだけ出さない）。
+try:
+    import mgmt_report as MR
+except Exception:      # pragma: no cover - 実行環境にファイルが無い場合のみ
+    MR = None
+
 # deploy-marker: portfolio current-month forecast (2026-07-10e) — redeploy trigger
 
 # 本文上部に表示するビルド識別子。Cloud が古いビルドを配信していないか
@@ -230,6 +237,63 @@ def read_history(month):
     return rows
 
 
+def read_prevyear_actual_row(ym):
+    """monthly_actuals.csv から前年同月の確定実績の行を返す。無ければ None。
+
+    経営分析で使う診療日数・外来/訪問/介護の内訳・患者数などは
+    daily_rolling_forecast.json 側に前年値が無いため、ここから借りる。
+    集計済みの月次データだけを読む（患者単位データは扱わない）。
+    """
+    if not ym or len(ym) < 7:
+        return None
+    try:
+        prev = f"{int(ym[:4]) - 1}-{ym[5:7]}"
+    except Exception:
+        return None
+    try:
+        with open(os.path.join(DATA, HIST_DIR, F_MONTHLY_ACTUALS),
+                  encoding="utf-8-sig", newline="") as fh:
+            for r in csv.DictReader(fh):
+                if r.get("年月") == prev:
+                    return r
+    except Exception:
+        return None
+    return None
+
+
+def relabel_v3_summary(text):
+    """月初ベースの出力レポートを表示するときのラベル補正。
+
+    dashboard_v3_summary.md の『通常営業ベースとの差』は月初時点のV2予測から
+    計算した値で、画面上部（予測基準日時点の日次ローリング予測）の同名の値とは
+    基準が違う。同じ名前のまま並ぶと食い違いに見えるので、表示するときだけ
+    どちらの基準かを名前に入れる。元ファイルは書き換えない。
+    """
+    if not text:
+        return text
+    text = text.replace("通常営業ベースとの差",
+                        "通常営業ベースとの差（月初時点のV2予測を基準にした値）")
+    # 高単価型の案件レンジが算出できなかった月は 0〜0 と出力される。0円の見込みではない。
+    for z in ("0〜0百万円", "0〜0万円", "0〜0円"):
+        text = text.replace(z, "（算出不可）")
+    # 月初時点で作った経営アクションは、予測基準日時点で生成した「今月の打ち手」と
+    # 前提が違い、同じ画面に並ぶと食い違って見える。表示では見出しごと差し替える。
+    out, skip = [], False
+    for ln in text.splitlines():
+        if ln.startswith("##"):
+            skip = ("経営アクション" in ln) or ("確認すること" in ln) or ("打ち手" in ln)
+            if skip:
+                out.append("## 今月の経営アクション（月初時点の案・参考）")
+                out.append("")
+                out.append("> 月初時点で作った案のため、ここには表示していません。"
+                           "実際の打ち手は上部の『今月の打ち手』"
+                           "（予測基準日時点のデータから生成）をご覧ください。")
+                continue
+        if not skip:
+            out.append(ln)
+    return "\n".join(out)
+
+
 def parse_actions_from_md(text):
     if not text:
         return []
@@ -244,6 +308,111 @@ def parse_actions_from_md(text):
             if m:
                 acts.append(m.group(1).strip())
     return acts
+
+
+def _p(txt):
+    return f"<p>{_html.escape(str(txt))}</p>"
+
+
+def _render_mgmt_report(rep):
+    """参考レポートの冒頭。結論 → 主因 → 稼働 → 構造変化 → 月末までの論点。"""
+    if not rep:
+        st.markdown("<div class='mfc-rep'><div class='na'>経営分析を組み立てるための"
+                    "データが読み込めませんでした。</div></div>", unsafe_allow_html=True)
+        return
+    blocks = ["<div class='mfc-rep'>"]
+    blocks.append("<div class='h'>今月の結論</div>")
+    blocks.extend(_p(t) for t in rep["conclusion"])
+    blocks.append("<div class='h'>前年差の主因</div>")
+    blocks.append(_p(rep["cause"]["text"]))
+    if rep["capacity"]["text"]:
+        blocks.append("<div class='h'>稼働の評価</div>")
+        blocks.append(_p(rep["capacity"]["text"]))
+    if rep["structure"]:
+        blocks.append("<div class='h'>構造変化</div>")
+        blocks.append(_p(rep["structure"]["text"]))
+    blocks.append("<div class='h'>月末までの最大論点</div>")
+    blocks.append(_p(rep["focus"]))
+    if rep["notes"]:
+        blocks.append("<div class='h'>データについて</div>")
+        blocks.append("<div class='na'>" +
+                      "<br>".join("・" + _html.escape(n) for n in rep["notes"]) + "</div>")
+    blocks.append("</div>")
+    st.markdown("".join(blocks), unsafe_allow_html=True)
+
+
+def _render_contribution_table(rep):
+    """総売上の前年差を、どの項目がいくら作っているかに分解した表。"""
+    rows = (rep or {}).get("cause", {}).get("rows") or []
+    if not rows:
+        return
+    tr = []
+    for r in rows:
+        cls = signclass(r["diff"]) if r["role"] != "ほぼ前年並み" else "fl"
+        tr.append(f"<tr><td>{_html.escape(r['name'])}</td>"
+                  f"<td class='n'>{man(r['now'])}</td>"
+                  f"<td class='n'>{man(r['prev'])}</td>"
+                  f"<td class='n {cls}'>{sman(r['diff'])}</td>"
+                  f"<td class='n'>{MR.pct(r['rate'])}</td>"
+                  f"<td>{_html.escape(r['role'])}</td></tr>")
+    f = rep["facts"]
+    tr.append(f"<tr><td><b>総売上</b></td><td class='n'><b>{man(f['total'])}</b></td>"
+              f"<td class='n'><b>{man(f['prev_total'])}</b></td>"
+              f"<td class='n {signclass(f['yoy'])}'><b>{sman(f['yoy'])}</b></td>"
+              f"<td class='n'>{MR.pct(f['yoy_rate'])}</td><td></td></tr>")
+    st.markdown(
+        "<table class='mfc-ctab'><tr><th>項目</th><th style='text-align:right'>今月見込み</th>"
+        "<th style='text-align:right'>前年同月</th><th style='text-align:right'>前年差</th>"
+        "<th style='text-align:right'>増減率</th><th>全体差への向き</th></tr>"
+        + "".join(tr) + "</table>", unsafe_allow_html=True)
+
+
+def _render_capacity_table(rep):
+    rows = (rep or {}).get("capacity", {}).get("rows") or []
+    if not rows:
+        return
+    tr = []
+    for r in rows:
+        cls = signclass(r["diff_raw"])
+        tr.append(f"<tr><td>{_html.escape(r['name'])}</td>"
+                  f"<td class='n'>{_html.escape(r['now'])}</td>"
+                  f"<td style='color:#8a94a3;font-size:11.5px'>"
+                  f"{_html.escape(r.get('kind', '見込み'))}</td>"
+                  f"<td class='n'>{_html.escape(r['prev'])}</td>"
+                  f"<td class='n {cls}'>{_html.escape(r['diff'])}</td></tr>")
+    st.markdown(
+        "<table class='mfc-ctab'><tr><th>稼働の指標</th>"
+        "<th style='text-align:right'>今月</th><th>区分</th>"
+        "<th style='text-align:right'>前年同月（実績）</th>"
+        "<th style='text-align:right'>差</th></tr>"
+        + "".join(tr) + "</table>"
+        "<div class='mfc-note'>「見込み」は月末着地の予測値、「実績」は予測基準日時点の"
+        "実データです。前年同月はすべて確定実績です。</div>", unsafe_allow_html=True)
+
+
+def _render_actions(rep):
+    """今月の打ち手。1件ごとに 対象／理由／確認する数字／判断 を出す。"""
+    acts = (rep or {}).get("actions") or []
+    if not acts:
+        st.markdown("<div class='mfc-rep'><div class='na'>今月のデータからは、"
+                    "経営判断が必要な論点を特定できませんでした。</div></div>",
+                    unsafe_allow_html=True)
+        return
+    out = []
+    for i, a in enumerate(acts, 1):
+        checks = "".join(f"<li>{_html.escape(str(c))}</li>" for c in a["check"])
+        out.append(
+            f"<div class='mfc-a'><div class='no'>ACTION {i}</div>"
+            f"<div class='hd'>{_html.escape(a['headline'])}</div>"
+            "<dl>"
+            f"<dt>対象</dt><dd>{_html.escape(a['target'])}</dd>"
+            f"<dt>理由</dt><dd>{_html.escape(a['why'])}</dd>"
+            f"<dt>確認する数字</dt><dd><ul>{checks}</ul></dd>"
+            f"<dt>何を判断するか</dt><dd>{_html.escape(a['decide'])}</dd>"
+            "</dl></div>")
+    st.markdown("".join(out), unsafe_allow_html=True)
+    st.markdown("<div class='mfc-note'>並び順は、総売上の差への効き方と月内で動かせるかどうかで"
+                "決めています。件数は最大5件です。</div>", unsafe_allow_html=True)
 
 
 # ======================================================================
@@ -725,6 +894,34 @@ hr{display:none;}
 .mfc-actions li:last-child{border-bottom:none;}
 .mfc-actions li:before{content:"→";position:absolute;left:2px;color:var(--gold);font-weight:800;}
 .mfc-actions .h{display:none;}
+/* ---- 経営レポート ---- */
+.mfc-rep{background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:22px 26px;margin:10px 0 4px;box-shadow:var(--shadow);}
+.mfc-rep .h{font-size:11.5px;font-weight:800;color:var(--gold);letter-spacing:1.6px;margin:24px 0 8px;}
+.mfc-rep .h:first-child{margin-top:0;}
+.mfc-rep p{font-size:15px;line-height:1.95;color:var(--ink);margin:0 0 7px;}
+.mfc-rep p:last-child{margin-bottom:0;}
+.mfc-rep b{color:var(--navy);font-weight:800;}
+.mfc-rep .na{font-size:14px;color:var(--faint);line-height:1.8;}
+.mfc-ctab{width:100%;border-collapse:collapse;font-size:13.5px;margin:4px 0 2px;}
+.mfc-ctab th{text-align:left;font-weight:800;color:var(--faint);font-size:11.5px;
+  border-bottom:1px solid var(--line);padding:7px 8px;}
+.mfc-ctab td{padding:9px 8px;border-bottom:1px solid var(--line);color:var(--ink);}
+.mfc-ctab td.n{text-align:right;font-variant-numeric:tabular-nums;}
+.mfc-ctab .dn{color:var(--red);font-weight:800;}
+.mfc-ctab .up{color:var(--green);font-weight:800;}
+.mfc-ctab .fl{color:var(--faint);font-weight:700;}
+.mfc-a{border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:11px;
+  padding:15px 19px;margin:0 0 13px;background:var(--card);}
+.mfc-a .no{font-size:11px;font-weight:800;color:var(--gold);letter-spacing:1.4px;}
+.mfc-a .hd{font-size:15.5px;font-weight:800;color:var(--navy);line-height:1.5;margin:3px 0 11px;}
+.mfc-a dl{margin:0;display:grid;grid-template-columns:104px 1fr;gap:7px 14px;
+  font-size:13.5px;line-height:1.8;}
+.mfc-a dt{color:var(--faint);font-weight:800;font-size:12px;padding-top:2px;}
+.mfc-a dd{margin:0;color:var(--ink);}
+.mfc-a ul{margin:0;padding-left:17px;}
+.mfc-a li{margin:1px 0;}
+@media (max-width:700px){.mfc-a dl{grid-template-columns:1fr;gap:2px 0;}}
 /* ---- Streamlit expander ---- */
 [data-testid="stExpander"]{border:1px solid var(--line)!important;border-radius:14px!important;
   background:var(--card);box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden;}
@@ -923,6 +1120,22 @@ def render(month, snap, nav=None):
                    "ローカル運用版で再生成してください。")
         return
 
+    # 経営分析（表示専用）。前年同月の月次実績と、直前のスナップショットを材料に渡す。
+    _hist_rows = read_history(month)
+    _prev_fc = None
+    for _r in _hist_rows:
+        if _r.get("as_of_date", "") < (as_of or ""):
+            _prev_fc = _r
+    mgmt = None
+    if MR is not None:
+        try:
+            mgmt = MR.build_management_report(
+                roll, read_prevyear_actual_row(roll.get("target_month")), _prev_fc)
+        except Exception as e:      # 分析が落ちても数値カードは出す
+            st.markdown(f"<div class='mfc-note'>経営分析の生成に失敗しました（{_html.escape(str(e))}）。"
+                        "数値カードは通常どおり表示しています。</div>", unsafe_allow_html=True)
+            mgmt = None
+
     cur = fnum(roll.get("current_forecast_total"))
     base = fnum(roll.get("normal_baseline_forecast"))
     gap = fnum(roll.get("gap_to_normal_baseline"))
@@ -960,29 +1173,30 @@ def render(month, snap, nav=None):
     r80 = f"{manv(lo)}〜{manv(hi)}" if (lo is not None and hi is not None) else "取得不可"
     yoy_pct = f"（{yoy_rate:+.1f}%）" if isinstance(yoy_rate, (int, float)) else ""
     below = (cur is not None and py is not None and cur < py)
-    yoy_word = "下回る" if below else ("上回る" if (cur is not None and py is not None and cur > py) else "ほぼ並ぶ")
     verdict_cls = "dn" if below else "up"
     # 文言のみ。判定条件（yoy_td / biz_diff / beats）は従来のまま変えていない。
     # 旧文は「弱めだが…下回り」のように、同じ向きの2つを逆接でつないでいて読みにくかった。
     # 向きが揃っているときは1文にまとめ、食い違うときだけ逆接にする。
     foot_down = (yoy_td is not None and yoy_td < 0)              # 暦の同日比
-    biz_down = not (biz_diff is not None and biz_diff >= 0)      # 実績日数基準
+    biz_down = not (biz_diff is not None and biz_diff >= 0)      # 同じ診療日数まで累計した比較
     month_down = not beats                                       # 月末着地
     foot_verb = "下回って" if foot_down else "上回って"
     biz_verb = "下回って" if biz_down else "上回って"
     month_verb = "下回る" if month_down else "上回る"
     if foot_down == biz_down:
-        takeaway = f"足元の実績は、同じ経過日数で比べても<b>前年を{biz_verb}います</b>。"
+        takeaway = f"今月ここまでの実績は、同じ診療日数で比べても<b>前年を{biz_verb}います</b>。"
     else:
-        takeaway = (f"足元の実績は暦の同日比では前年を{foot_verb}いますが、"
-                    f"同じ経過日数で比べると<b>前年を{biz_verb}います</b>。")
+        takeaway = (f"今月ここまでの実績は暦の同じ日で比べると前年を{foot_verb}いますが、"
+                    f"同じ診療日数で比べると<b>前年を{biz_verb}います</b>。")
     takeaway += (f"現時点では、月末着地{'も' if month_down == biz_down else 'は'}"
                  f"<b>前年同月を{month_verb}見込み</b>です。")
 
     actual_days = roll.get("actual_days_count") or 0
     remaining_days_count = roll.get("remaining_days_count") or 0
-    planned_days = 21
-    unplanned_actual_days = 2
+    unrecorded_days = roll.get("elapsed_unrecorded_days_count") or 0
+    # 今月の診療日数は「実績のある日数＋経過したが未反映の日数＋残り日数」で決まる。
+    # 月ごとに変わるのでコードに書かない。
+    month_days = actual_days + unrecorded_days + remaining_days_count
     actual_daily_avg = (actual_td / actual_days) if actual_days else 0.0
     remaining_daily_avg = (remaining / remaining_days_count) if remaining_days_count else 0.0
     pace_gap = ((remaining_daily_avg / actual_daily_avg - 1) if actual_daily_avg else 0.0)
@@ -1003,20 +1217,25 @@ def render(month, snap, nav=None):
         f"<div class='cItem'>保守ライン<b>{man(cons)}</b></div>"
         f"<div class='cItem'>80%予測レンジ<b>{r80}<small>万円</small></b></div>"
         "</div></div>", unsafe_allow_html=True)
+    top3 = (mgmt or {}).get("actions", [])[:3]
+    if top3:
+        rows_html = "".join(
+            f"<div class='r'><span class='t'>{_html.escape(a['headline'])}</span>"
+            f"<span class='d'>{_html.escape(a['why'])}</span></div>" for a in top3)
+    else:
+        rows_html = ("<div class='r'><span class='t'>今日の論点は特定できていません</span>"
+                     "<span class='d'>前年同月の実績が読めないため、差の主因を分解できません。</span></div>")
     st.markdown(
-        "<div class='mfc-act'><div class='k'>今日のアクション</div>"
+        "<div class='mfc-act'><div class='k'>今日の結論と論点</div>"
         f"<div class='lead'>{takeaway}</div>"
-        "<div class='rows'>"
-        "<div class='r'><span class='t'>自費売上化</span><span class='d'>高単価の自費案件を月内に売上化できるか確認</span></div>"
-        "<div class='r'><span class='t'>来院充足</span><span class='d'>空き枠・キャンセル枠への再予約を促進</span></div>"
-        "<div class='r'><span class='t'>訪問介護</span><span class='d'>未入力分は月末見込みに別枠で反映</span></div>"
-        "</div></div>", unsafe_allow_html=True)
+        f"<div class='rows'>{rows_html}</div></div>", unsafe_allow_html=True)
 
     st.markdown('<div class="mfc-sec">この見込みの前提</div>', unsafe_allow_html=True)
     st.markdown(
         "<div class='mfc-cards4'>"
         "<div class='mfc-card tp-g'><div class='lb'>診療日数の前提</div>"
-        f"<div class='py'>予定診療日数 <b>{planned_days}日</b><br>実績のある日数 <b>{actual_days}日</b><br>予定外実績日 <b>{unplanned_actual_days}日</b><br>残り予定診療日数 <b>{remaining_days_count}日</b></div></div>"
+        f"<div class='py'>今月の診療日数 <b>{month_days}日</b><br>実績のある日数 <b>{actual_days}日</b>"
+        f"<br>経過したが未反映 <b>{unrecorded_days}日</b><br>残りの診療日 <b>{remaining_days_count}日</b></div></div>"
         "<div class='mfc-card tp-n'><div class='lb'>売上ペースの前提</div>"
         f"<div class='py'>現時点平均 <b>{actual_daily_avg/10000:.1f}万円/日</b><br>残り見込み <b>{remaining_daily_avg/10000:.1f}万円/日</b><br>残り期間は現時点平均より <b>{pace_gap*100:+.0f}%</b> 高いペース</div></div>"
         "<div class='mfc-card tp-o'><div class='lb'>押し上げ要素</div>"
@@ -1169,9 +1388,10 @@ def render(month, snap, nav=None):
     st.markdown(
         "<div class='mfc-cmp'>"
         f"<span class='chip {cal_cls}'><span class='lbl'>暦同日</span><b>{smanv(yoy_td)}万円</b><em>{td_pct}</em></span>"
-        f"<span class='chip {biz_cls}'><span class='lbl'>実績日数基準</span><b>{smanv(biz_diff)}万円</b><em>{biz_pct}</em></span>"
-        f"<span class='muted'>暦同日は当年{cur_days}／前年{py_days}診療日（木曜休診）でズレるため、"
-        f"実績日数基準の前年比較を補助指標として表示します。予定診療日数21日とは別軸です。訪問・介護は月末着地で別建て。</span>"
+        f"<span class='chip {biz_cls}'><span class='lbl'>同じ診療日数</span><b>{smanv(biz_diff)}万円</b><em>{biz_pct}</em></span>"
+        f"<span class='muted'>暦の同じ日で比べると当年{cur_days}日／前年{py_days}日と診療日数がずれる"
+        f"（木曜休診）ため、同じ診療日数まで累計した前年との比較も並べています。"
+        f"訪問・介護は入力が遅れるため、月末着地に分けて足しています。</span>"
         "</div>", unsafe_allow_html=True)
 
     # ===== 第2階層：着地根拠 / 月末着地見込みの比較 =====
@@ -1232,11 +1452,11 @@ def render(month, snap, nav=None):
         f"<div class='py'>{as_of}翌日〜月末（木曜休診反映）</div></div>"
         f"<div class='mfc-card tp-o'><div class='lb'>④ 訪問・介護見込み{lab('est')}</div>"
         f"<div class='big'>{manv(vc)}<span class='u'>万円</span></div>"
-        f"<div class='py'>過去12か月平均・別建て（ペース補正なし）</div></div>"
+        f"<div class='py'>過去12か月平均から、外来とは分けて見込む（予約ペース補正なし）</div></div>"
         "</div>", unsafe_allow_html=True)
     st.markdown(
         f"<div class='mfc-note'>① ＋ ② ＋ ③ ＋ ④ ＝ 月末着地見込み <b>{man(cur)}</b>。"
-        "訪問・介護は入力遅れのため外来予約ペースと分け、過去12か月平均で別建て。"
+        "訪問・介護は入力が遅れるため外来の予約ペースとは分けて、過去12か月平均で見込んでいます。"
         f"　｜　レセコン：<b>{resec_status}</b>"
         + (f"（{actual_through}まで）" if actual_through else "（当月未取込）")
         + f"　予約：<b>{apo_status}</b>"
@@ -1260,7 +1480,8 @@ def render(month, snap, nav=None):
             "</div>", unsafe_allow_html=True)
         st.markdown(
             "<div class='mfc-note'>現在予約だけで過小評価しないよう、過去12か月の予約増加"
-            f"（<b>{rg_mult:.2f}x</b>）を反映。上下限 0.85〜1.10。訪問・介護は対象外（④で別建て）。</div>",
+            f"（<b>{rg_mult:.2f}x</b>）を反映。上下限 0.85〜1.10。"
+            "訪問・介護にはこの補正をかけず、④で分けて見込んでいます。</div>",
             unsafe_allow_html=True)
 
     # ===== 第3階層：詳細分析 =====
@@ -1316,7 +1537,7 @@ def render(month, snap, nav=None):
                        f"<div class='py'>登録済み予約(as_of時点)ベース"
                        + (f"<br>前年同月 <b>{pyr:.1f}%</b>{cdtxt}" if pyr is not None else "") + "</div>"
                        "<div class='cardsw'><span class='sw'>So What</span>"
-                       "空き枠の再充填で来院数の下振れを防ぐ。</div></div>")
+                       "空いた枠を再予約で埋め、来院数の落ち込みを防ぐ。</div></div>")
     else:
         cancel_card = ("<div class='mfc-card tp-r'><div class='lb'>キャンセル率"
                        "<span class='lab lab-ref'>データ未取得</span></div>"
@@ -1326,9 +1547,9 @@ def render(month, snap, nav=None):
         "<div class='mfc-cards4'>"
         + patient_card
         + cnt_card("来院回数", vis.get("forecast"), vis.get("prevyear"), "回", "est",
-                   "来院回数の前年差は売上の量的な下押し。他曜日への振替・空き枠再充填で回復を図る。", "tp-n")
+                   "来院回数の前年差はそのまま売上の下押しになる。他の曜日への振替と空き枠の再予約で戻す。", "tp-n")
         + cnt_card("初診", sho.get("forecast"), sho.get("prevyear"), "件", "est",
-                   "初診のうち自費相談・治療移行見込みを確認し、自費売上化につなげる。", "tp-o")
+                   "初診のうち自費の相談・治療計画まで進んだ件数を確認し、自費につなげる。", "tp-o")
         + cancel_card
         + "</div>", unsafe_allow_html=True)
     st.markdown(
@@ -1342,17 +1563,20 @@ def render(month, snap, nav=None):
         comp = sup.get("reservation_composition") or {}
         if comp.get("available"):
             types = comp.get("types") or {}
-            order = [("継続管理型", "tp-g"), ("都度治療型", "tp-n"),
-                     ("高単価型", "tp-o"), ("混合・判定保留", "tp-r")]
+            # 左＝データ上の分類キー、右＝画面に出す呼び方。キーは変えない。
+            order = [("継続管理型", "定期管理の患者", "tp-g"),
+                     ("都度治療型", "その都度の治療", "tp-n"),
+                     ("高単価型", "高額な自費が見込まれる予約", "tp-o"),
+                     ("混合・判定保留", "分類できていない予約", "tp-r")]
             cards = []
-            for name, tp in order:
+            for name, disp, tp in order:
                 t = types.get(name) or {}
                 cv = t.get("current"); pv = t.get("prevyear")
                 diff = (cv - pv) if (cv is not None and pv is not None) else None
                 pyline = (f"前年同月(実績) <b>{intv(pv)}件</b>　{sint(diff)}{pct_of(cv, pv)}"
                           if pv is not None else "前年同月：取得不可")
                 cards.append(
-                    f"<div class='mfc-card {tp}'><div class='lb'>{name}{lab('act')}</div>"
+                    f"<div class='mfc-card {tp}'><div class='lb'>{disp}{lab('act')}</div>"
                     f"<div class='big'>{intv(cv)}<span class='u'>件</span></div>"
                     f"<div class='py'>登録済み予約(as_of時点)<br>{pyline}</div></div>")
             st.markdown("<div class='mfc-cards4'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
@@ -1368,18 +1592,40 @@ def render(month, snap, nav=None):
     # ===== 参考レポート（折りたたみ）=====
     st.markdown('<div class="mfc-tier"><span class="n">REFERENCE</span>参考レポート'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
+    _render_mgmt_report(mgmt)
 
     with st.expander("売上内訳・判断サマリー（詳細）", expanded=False):
-        hvl = fnum(roll.get("high_value_selfpay_low"))
-        hvh = fnum(roll.get("high_value_selfpay_high"))
-        hv_disp = f"{manv(hvl)}〜{manv(hvh)}万円" if (hvl is not None and hvh is not None) else "取得不可"
+        st.markdown("<div class='mfc-sec'>総売上の前年差を、どの項目が作っているか</div>",
+                    unsafe_allow_html=True)
+        _render_contribution_table(mgmt)
+        st.markdown(f"<div class='mfc-note'>{_html.escape((mgmt or {}).get('cause', {}).get('text', ''))}"
+                    "</div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='mfc-sec'>稼働（診療日数・来院・単価）</div>", unsafe_allow_html=True)
+        _render_capacity_table(mgmt)
+
+        st.markdown("<div class='mfc-sec'>自費の見立て</div>", unsafe_allow_html=True)
+        st.markdown("<div class='mfc-judge'>"
+                    + _html.escape(((mgmt or {}).get("selfpay") or {}).get("text",
+                        "自費の前年比較に必要なデータが取得できません。"))
+                    + "</div>", unsafe_allow_html=True)
+
+        # 「通常営業ベースとの差」は下の出力レポート（月初ベース）にも同じ名前で出るため、
+        # どちらの基準の数字かを名前に入れて区別する。
+        st.markdown("<div class='mfc-sec'>診療日数の変化（通常営業だった場合との差）</div>",
+                    unsafe_allow_html=True)
+        _stru_txt = ((mgmt or {}).get("structure") or {}).get("text")
         st.markdown(
-            f"<div class='mfc-judge'>現時点では<b>前年同月を{yoy_word}見込み</b>。"
-            f"<ul><li>着地見込み <b>{man(cur)}</b>／前年 <b>{man(py)}</b>（{sman(yoy)}{yoy_pct}）。</li>"
-            f"<li>通常営業ベース <b>{man(base)}</b> との差 <b>{sman(gap)}</b> は木曜休診影響の候補"
-            "（確定損失ではない）。</li>"
-            f"<li>差を埋める鍵＝高単価型 自費レンジ <b>{hv_disp}</b> の月内売上化。</li></ul></div>",
-            unsafe_allow_html=True)
+            "<div class='mfc-judge'>"
+            f"<b>予測基準日 {as_of} 時点の日次ローリング予測を基準にした差</b><br>"
+            + (_html.escape(_stru_txt) if _stru_txt else
+               f"通常営業だった場合の見込み <b>{man(base)}</b> に対し着地見込みは "
+               f"<b>{man(cur)}</b>、差は <b>{sman(gap)}</b> です。")
+            + "<br><span style='color:#8a94a3'>下の『出力レポート確認』に出てくる同じ名前の差は、"
+              "月初時点のV2予測を基準にした別の数字です。基準日が違うため一致しません。</span>"
+            "</div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='mfc-sec'>区分別の月末見込み</div>", unsafe_allow_html=True)
 
         def scard(lb_, key, akey, pkey, tp):
             v = fnum(roll.get(key)); av = fnum(roll.get(akey)); pv = fnum(roll.get(pkey))
@@ -1403,8 +1649,9 @@ def render(month, snap, nav=None):
         if outp is not None:
             st.markdown(
                 f"<div class='mfc-note'>保険内訳：外来 <b>{man(outp)}</b>（予約ペース補正あり）／"
-                f"訪問 <b>{man(vins)}</b>／介護 <b>{man(care)}</b>。訪問・介護は入力遅れのため"
-                "過去12か月平均で別建て（0扱いしない）。</div>", unsafe_allow_html=True)
+                f"訪問 <b>{man(vins)}</b>／介護 <b>{man(care)}</b>。訪問・介護は入力が遅れるため、"
+                "過去12か月平均から分けて見込んでいます（未入力を0円とは扱いません）。</div>",
+                unsafe_allow_html=True)
 
     with st.expander("予測の推移・前回予測との差分", expanded=False):
         hist = read_history(month)
@@ -1438,16 +1685,8 @@ def render(month, snap, nav=None):
             st.markdown("<div class='mfc-diff'>これより前の予測基準日はまだありません"
                         "（本スナップショットが最初）。翌日以降から差分表示。</div>", unsafe_allow_html=True)
 
-    with st.expander("今月の打ち手（院長・事務局向け）", expanded=False):
-        acts = parse_actions_from_md(summary_md)
-        if acts:
-            li = "".join(f"<li><b>{i}.</b> {_html.escape(str(a))}</li>" for i, a in enumerate(acts, 1))
-            body = f"<ul>{li}</ul>"
-        else:
-            body = ("<ul><li><b>1.</b> 高単価型自費の案件別進捗を確認（月内売上化か翌月送りか）。</li>"
-                    "<li><b>2.</b> 継続管理型の未充足枠・キャンセル枠を他曜日へ補充。</li>"
-                    "<li><b>3.</b> 月末確定後、通常営業ベースとの差が吸収されたかを判定。</li></ul>")
-        st.markdown(f"<div class='mfc-actions'>{body}</div>", unsafe_allow_html=True)
+    with st.expander("今月の打ち手（院長・事務局向け）", expanded=True):
+        _render_actions(mgmt)
 
     # ========== 予測の考え方 ==========
     with st.expander("この予測の考え方（院長向け）", expanded=False):
@@ -1469,13 +1708,18 @@ def render(month, snap, nav=None):
                    "院長がご覧になる正しい数値は、上部の『現時点着地見込み』ほかのカードです。")
         if os.path.exists(png_path):
             st.image(png_path, width="stretch",
-                     caption="【参考表示・月初ベース】dashboard_v3（正データではありません／正データは上部カード）")
+                     caption="【参考表示・月初ベース】dashboard_v3（正データではありません／"
+                             "正データは上部カード）。この画像の『通常営業ベースとの差』は"
+                             "月初時点のV2予測を基準にした値で、"
+                             "上部の予測基準日時点の差とは一致しません。")
         else:
             st.caption("このスナップショットの dashboard_v3.png はありません。")
         if summary_md:
             with st.expander("summary.md の内容（参考・月初ベース）", expanded=False):
-                st.info("参考表示です。正データは上部の日次ローリング予測カードです。")
-                st.markdown(summary_md)
+                st.info("参考表示です。正データは上部の日次ローリング予測カードです。"
+                        "この中の『通常営業ベースとの差』は月初時点のV2予測を基準にした値で、"
+                        "上部に出ている予測基準日時点の同名の差とは基準が違うため一致しません。")
+                st.markdown(relabel_v3_summary(summary_md))
         if forecast_md:
             with st.expander("予測根拠サマリー（forecast_summary_v2・参考）", expanded=False):
                 st.info("参考表示（V2モデルの月初予測サマリー）です。正データは上部の日次ローリング予測カードです。")
@@ -1501,7 +1745,8 @@ def render(month, snap, nav=None):
             "- 表示値は確定値ではなく、経営判断のための推定値です。\n"
             "- 日次ローリング予測は、予測基準日までの実績＋残り見込みで着地を計算します。\n"
             "- 当月レセコン実績が未反映のときは、その旨を上部に表示します。\n"
-            "- 自費は変動が大きく、差の主因になりえます。高単価型は案件別の確認が必要です。\n"
+            "- 自費は月ごとの振れが大きく、前年差の主因になりやすい区分です。\n"
+            "  高額な自費案件は院内の管理表で1件ずつ確認してください。\n"
             "- 通常営業ベースとの差は、月末後に実績と比較して再検証します（確定的な損失ではありません）。\n"
             "- 足りない項目は推測で作らず「データ未取得」と表示しています。\n"
             "- 本画面は院内検証用・閲覧専用です。予測更新はローカル運用版で行います。")
