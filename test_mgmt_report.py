@@ -33,7 +33,10 @@ def make_roll(insurance, selfpay, product,
               obs_days=13, obs_total=10_912_740, obs_outp=7_727_810,
               obs_jihi=2_981_000, obs_buppin=203_930,
               obs_prev_total=11_878_440, obs_prev_rate=-8.1,
-              pyd_days=15, pyd_outp=7_264_860, pyd_jihi=5_585_250, pyd_buppin=185_990):
+              pyd_days=15, pyd_outp=7_264_860, pyd_jihi=5_585_250, pyd_buppin=185_990,
+              out_days=12, with_outpatient_days=True,
+              py_biz_out_days=12, with_prev_outpatient_days=True,
+              pyb_outp=6_453_630, pyb_jihi=5_244_250, pyb_buppin=180_560):
     total = insurance + selfpay + product
     prev_total = insurance_prev + selfpay_prev + product_prev
     if outpatient is None:
@@ -75,6 +78,11 @@ def make_roll(insurance, selfpay, product,
         "actual_days_count": days_actual,
         "elapsed_unrecorded_days_count": days_unrec,
         "remaining_days_count": days_remaining,
+        **({"outpatient_actual_days_count": out_days,
+            "outpatient_elapsed_unrecorded_days_count": days_unrec,
+            "outpatient_remaining_days_count": days_remaining,
+            "outpatient_month_days_count": out_days + days_unrec + days_remaining}
+           if with_outpatient_days else {}),
         "actual_to_date_total": actual_to_date,
         "remaining_forecast_total": remaining_forecast,
         "reservation_visible_remaining_as_of": 452,
@@ -91,9 +99,12 @@ def make_roll(insurance, selfpay, product,
             "prev_year_same_day": {"total": 13_036_100, "insurance_outpatient": pyd_outp,
                                    "selfpay": pyd_jihi, "product": pyd_buppin,
                                    "clinic_days": pyd_days},
-            "prev_year_same_bizdays": {"total": obs_prev_total, "clinic_days": obs_days,
-                                       "diff_vs_current": obs_total - obs_prev_total,
-                                       "rate": obs_prev_rate},
+            "prev_year_same_bizdays": {
+                "total": obs_prev_total, "clinic_days": obs_days,
+                "diff_vs_current": obs_total - obs_prev_total, "rate": obs_prev_rate,
+                **({"outpatient_days_count": py_biz_out_days,
+                    "insurance_outpatient": pyb_outp, "selfpay": pyb_jihi,
+                    "product": pyb_buppin} if with_prev_outpatient_days else {})},
         },
         "supplementary": {
             "visit": {"available": True, "forecast": visit, "prevyear": visit_prev,
@@ -276,22 +287,73 @@ class TestStructure(unittest.TestCase):
         self.assertNotIn("損失額", st["text"])
         self.assertIn("可能性がある範囲", st["text"])
 
-    def test_absorption_only_when_observed_total_holds(self):
-        """吸収したと言えるのは、実測の総額が前年に負けていないときだけ。"""
-        # 実測が前年割れ（-8.1%）→ 外来保険が伸びていても「吸収」とは言わない
+    def test_absorption_needs_matched_outpatient_days(self):
+        """吸収判定は、当年と前年の外来診療日数が一致したときだけ行う。"""
+        # 一致（12日 vs 12日）→ 判定する
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
                               13_393_890, 8_131_750, 279_770,
                               baseline=22_386_557))
-        self.assertFalse(rep["structure"]["absorbed"])
-        self.assertIn("観測されている範囲では", rep["structure"]["text"])
-        self.assertIn("吸収できているとまでは言えません", rep["structure"]["text"])
-        # 実測が前年並み以上 → 吸収できている
+        st = rep["structure"]
+        self.assertTrue(rep["facts"]["outpatient_days_match"])
+        self.assertFalse(st["absorbed"])
+        self.assertIn("同じ外来診療日数（12日）まで累計して比べると", st["text"])
+        self.assertIn("吸収できているとまでは言えません", st["text"])
+        # 一致しない（12日 vs 11日）→ 判定しない
+        ng = build(make_roll(15_113_808, 6_010_211, 316_528,
+                             13_393_890, 8_131_750, 279_770,
+                             baseline=22_386_557, py_biz_out_days=11))
+        self.assertFalse(ng["facts"]["outpatient_days_match"])
+        self.assertIn("この画面では判定していません", ng["structure"]["text"])
+        self.assertNotIn("吸収できているとまでは言えません", ng["structure"]["text"])
+        # 前年が上回っていれば吸収できていると判定
         ok = build(make_roll(15_113_808, 6_010_211, 316_528,
                              13_393_890, 8_131_750, 279_770,
-                             baseline=22_386_557,
-                             obs_prev_total=10_000_000, obs_prev_rate=9.1))
+                             baseline=22_386_557, obs_prev_total=10_000_000))
         self.assertTrue(ok["structure"]["absorbed"])
         self.assertIn("埋められている状態です", ok["structure"]["text"])
+
+    def test_clinic_days_alone_never_authorizes_comparison(self):
+        """clinic_days が同じでも、外来診療日数が違えば比較を出さない。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770,
+                              py_biz_out_days=11))
+        f = rep["facts"]
+        self.assertEqual(f["obs_days"], f["obs_prev_days"])      # clinic_days は 13 で同じ
+        self.assertNotEqual(f["days_actual_outpatient"], f["obs_prev_outpatient_days"])
+        self.assertFalse(f["outpatient_days_match"])
+        self.assertIsNone(f["op_diff_total"])
+        self.assertIsNone(f["op_per_day_prev"])
+        t = rep["capacity"]["text"]
+        self.assertIn("一致せず", t)
+        self.assertNotIn("-8.1%", t)
+        row = next(r for r in rep["capacity"]["rows"]
+                   if r["name"].startswith("外来診療日あたり売上（実績"))
+        self.assertEqual(row["prev"], "—")
+
+    def test_old_snapshot_without_prev_outpatient_days(self):
+        """前年側のキーが無い旧snapshotでは比較を出さない（推測しない）。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770,
+                              with_prev_outpatient_days=False))
+        f = rep["facts"]
+        self.assertIsNone(f["obs_prev_outpatient_days"])
+        self.assertFalse(f["outpatient_days_match"])
+        self.assertIsNone(f["op_diff_total"])
+        self.assertIn("前年側の外来診療日数がスナップショットに入っていない",
+                      rep["capacity"]["text"])
+
+    def test_matched_comparison_uses_same_outpatient_days(self):
+        """外来保険・自費・物販・合計の比較が同じ外来診療日数に基づくこと。"""
+        roll = make_roll(15_113_808, 6_010_211, 316_528, 13_393_890, 8_131_750, 279_770)
+        f = build(roll)["facts"]
+        n = f["days_actual_outpatient"]
+        self.assertEqual(n, f["obs_prev_outpatient_days"])
+        biz = roll["progress_through_yesterday"]["prev_year_same_bizdays"]
+        for key, prev_amt in (("outpatient", biz["insurance_outpatient"]),
+                              ("selfpay", biz["selfpay"]), ("product", biz["product"])):
+            self.assertAlmostEqual(f[f"op_prev_{key}_per_day"], prev_amt / n, places=6)
+        self.assertAlmostEqual(f["op_per_day_prev"], biz["total"] / n, places=6)
+        self.assertAlmostEqual(f["op_diff_total"], f["obs_total"] - biz["total"], places=6)
 
     def test_no_absorption_claim_when_density_is_down(self):
         rep = build(make_roll(11_500_000, 5_000_000, 200_000,
@@ -422,11 +484,9 @@ class TestActionQuality(unittest.TestCase):
             axes_b = (b["tier"], b["directness"], b["urgency"], b["confidence"])
             self.assertLessEqual(axes_a, axes_b,
                                  f"{a['headline']} / {b['headline']}")
-        # 実データでは、金額の大きい自費(関連差額212万)より
-        # 金額の小さい必要ペース(着地リスク57万)が上に来る
+        # 金額の大きい自費（関連差額212万）が先頭に来ないこと
         names = action_headlines(rep)
-        self.assertLess(next(i for i, h in enumerate(names) if "必要なペース" in h),
-                        next(i for i, h in enumerate(names) if "水準で確認" in h))
+        self.assertNotIn("水準で確認", names[0])
 
     def test_every_amount_declares_what_it_means(self):
         """並べ替えに使う金額は、何を表すのかを必ず持つ（根拠のない影響額を出さない）。"""
@@ -453,8 +513,6 @@ class TestActionQuality(unittest.TestCase):
         top = rep["actions"][0]
         self.assertEqual(top["directness"], 1)
         self.assertEqual(top["urgency"], 1)
-        self.assertEqual(top["confidence"], 1)     # 実測から言える
-        self.assertIn("必要なペース", top["headline"])
         self.assertTrue(all(a["inmonth"] for a in rep["actions"]))
         # 自費は水準監視として残るが、金額が大きくても最優先ではない
         self.assertTrue(any("水準で確認" in h for h in action_headlines(rep)))
@@ -530,7 +588,7 @@ class TestConsistency(unittest.TestCase):
                               13_393_890, 8_131_750, 279_770,
                               days_actual=10, days_unrec=2, days_remaining=9))
         self.assertEqual(rep["facts"]["days_month"], 21)
-        self.assertIn("21日", rep["capacity"]["text"])
+        self.assertIn("これから診療する9日", rep["capacity"]["text"])
 
     def test_no_target_comparison_when_target_missing(self):
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
@@ -546,7 +604,7 @@ class TestConsistency(unittest.TestCase):
                       13_393_890, 8_131_750, 279_770), None, None)
         self.assertTrue(rep["conclusion"])
         self.assertIsNone(rep["facts"]["days_prev"])
-        self.assertIn("今月の外来診療予定日は", rep["capacity"]["text"])
+        self.assertIn("今月の外来診療日数は", rep["capacity"]["text"])
         self.assertTrue(any("前年同月の月次実績が読めない" in n for n in rep["notes"]))
 
     def test_empty_roll_does_not_crash(self):
@@ -628,8 +686,19 @@ class TestConsistency(unittest.TestCase):
         for sent in [x for x in re.split("。", cap) if x.strip()]:
             if ("実績で見ると" in sent or "実績" in sent[:6]
                     or "区分別の1日あたり" in sent or "内訳は、売上が確定している" in sent
-                    or "今月の外来診療予定日は" in sent
+                    or "今月の診療日数は" in sent
+                    or "今月の外来診療日数は" in sent
+                    or "外来診療を行った" in sent
+                    or "前年と比べられるのは" in sent
+                    or "外来診療を行った日だけ" in sent
+                    or "1日あたりの売上は、その日も分母" in sent
                     or "前年の日数は" in sent
+                    or "なお月次実績が持つ前年の日数は" in sent
+                    or "月の診療日数そのものの前年差は出していません" in sent
+                    or "前年の同時期との比較" in sent
+                    or "前年側の日数は" in sent
+                    or "前年も同じ外来診療日数" in sent
+                    or "区分別の1日あたりは" in sent
                     or "前年を同じ診療日数まで累計した" in sent):
                 continue          # 実測を述べた文はそのまま断定してよい
             if any(k in sent for k in ("来院回数", "1診療日あたり", "1来院あたり", "診療日数")):
@@ -642,9 +711,7 @@ class TestConsistency(unittest.TestCase):
         # 稼働表：今月側が見込みか実績か、前年側が何との比較かを行ごとに持っている
         for r in rep["capacity"]["rows"]:
             k = r.get("kind") or ""
-            if k.startswith("今月の内訳"):
-                # 前年と比較しない情報行。差も前年も出さない。
-                self.assertEqual(r["prev"], "—", r["name"])
+            if r["prev"] == "—":
                 self.assertEqual(r["diff"], "—", r["name"])
                 continue
             self.assertTrue(k.startswith("実績") or k.startswith("月末見込み"), r["name"])
@@ -715,24 +782,27 @@ class TestObservedFirst(unittest.TestCase):
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
                               13_393_890, 8_131_750, 279_770))
         t = rep["capacity"]["text"]
-        self.assertTrue(t.startswith("実績で見ると"), t[:30])
+        self.assertTrue(t.startswith("外来診療を行った"), t[:30])
         self.assertIn("-8.1%", t)
-        self.assertIn("月末見込みでは", t)
-        # 見込みが上振れ前提を含むことを明示する
-        self.assertIn("前提を含んだ数字", t)
-        self.assertIn("実績がこの水準に達しているわけではありません", t)
+        self.assertIn("月末見込みでは外来診療", t)
+        self.assertIn("前年も同じ外来診療日数（12日）まで累計すると", t)
 
     def test_observed_rows_are_labelled(self):
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
                               13_393_890, 8_131_750, 279_770))
         kinds = {r["name"]: r["kind"] for r in rep["capacity"]["rows"]}
-        # どの前年と比べた数字なのかが、区分の表記だけで読めること
-        self.assertEqual(kinds["外来診療日あたり売上（実績・外来保険＋自費＋物販）"],
-                         "実績／前年は同じ日数まで累計")
-        self.assertEqual(kinds["うち自費（実績・1日あたり）"],
-                         "実績／前年は暦の同じ日まで累計")
-        self.assertEqual(kinds["外来診療日あたり売上（外来保険＋自費＋物販）"],
-                         "月末見込み／前年は月末実績")
+        # 外来系はすべて外来診療日ベース。前年比較を持たない。
+        # 外来系はすべて外来診療日ベース
+        for n in ("外来診療日あたり売上（実績・外来保険＋自費＋物販）",
+                  "うち自費（実績・外来診療日あたり）",
+                  "外来診療日あたり売上（月末見込み・外来保険＋自費＋物販）"):
+            self.assertIn("外来診療", kinds[n], n)
+        # 日数が一致した実績行は前年と比較する
+        self.assertIn("同じ外来診療日数",
+                      kinds["外来診療日あたり売上（実績・外来保険＋自費＋物販）"])
+        # 月末見込みは前年側が無いので比較しない
+        self.assertIn("比較しない",
+                      kinds["外来診療日あたり売上（月末見込み・外来保険＋自費＋物販）"])
 
     def test_structure_never_calls_forecast_observed(self):
         """予測値を「実際には」と書かない（A-3）。"""
@@ -741,7 +811,10 @@ class TestObservedFirst(unittest.TestCase):
                               baseline=22_386_557))
         t = rep["structure"]["text"]
         self.assertNotIn("実際には", t)
-        self.assertIn("観測されている範囲では", t)
+        # 混合分母の1日あたり比較を根拠にしない
+        self.assertNotIn("前年48万円", t)
+        # 判定根拠は「同じ外来診療日数まで累計した比較」だけ
+        self.assertIn("同じ外来診療日数", t)
 
 
 # ======================================================================
@@ -822,11 +895,13 @@ class TestPerDayDefinitions(unittest.TestCase):
                 + roll["product_forecast"])
         self.assertEqual(f["op_now"], want)
         self.assertNotIn(roll["visit_insurance_forecast"], (f["op_now"],))
-        self.assertAlmostEqual(f["per_day_now"], want / f["days_month"], places=6)
+        self.assertAlmostEqual(f["per_day_now"], want / f["days_month_outpatient"], places=6)
         # 訪問＋介護を足した額では割っていない
         allrev = want + roll["visit_insurance_forecast"] + roll["care_forecast"]
-        self.assertNotAlmostEqual(f["per_day_now"], allrev / f["days_month"], places=0)
+        self.assertNotAlmostEqual(f["per_day_now"], allrev / f["days_month_outpatient"], places=0)
         self.assertEqual(f["per_day_basis_now"], MR.BASIS_OUTPATIENT)
+        # 混合分母では割っていない
+        self.assertNotAlmostEqual(f["per_day_now"], want / f["days_month"], places=0)
 
     def test_total_revenue_is_never_divided_by_outpatient_days(self):
         """全売上 ÷ 外来診療日数 という混ざった値を作らない。"""
@@ -834,7 +909,7 @@ class TestPerDayDefinitions(unittest.TestCase):
                          13_393_890, 8_131_750, 279_770)
         rep = build(roll)
         f = rep["facts"]
-        bad = f["total"] / f["days_month"]          # 21,440,548 ÷ 22 = 97.5万
+        bad = f["total"] / f["days_month_outpatient"]   # 全売上 ÷ 外来診療日数
         for k, v in f.items():
             if not k.endswith("per_day") and "per_day" not in k:
                 continue
@@ -851,7 +926,7 @@ class TestPerDayDefinitions(unittest.TestCase):
         prow = PREV_ROW
         want = float(prow["月間総売上"]) / float(prow["診療日数"])
         self.assertAlmostEqual(f["rev_day_per_day_prev"], want, places=6)
-        self.assertEqual(f["per_day_basis_prev"], MR.BASIS_REVENUE_DAY)
+        self.assertIsNone(f["per_day_basis_prev"])
         self.assertEqual(MR.HIST_DAYS_BASIS, MR.BASIS_REVENUE_DAY)
 
     def test_basis_gap_is_stated_when_thursday_is_closed(self):
@@ -860,14 +935,12 @@ class TestPerDayDefinitions(unittest.TestCase):
         self.assertTrue(rep["facts"]["per_day_basis_gap"])
         t = rep["capacity"]["text"]
         self.assertIn("売上が発生した日", t)
-        self.assertIn("外来診療の予定日", t)
-        self.assertIn("日数そのものの前年差は出していません", t)
-        self.assertIn("この違いを含んだ概算", t)
+        self.assertIn("月の診療日数そのものの前年差は出していません", t)
 
     def test_no_basis_note_when_thursday_is_open(self):
         rep = self._rep(thursday_closed=False)
         self.assertFalse(rep["facts"]["per_day_basis_gap"])
-        self.assertNotIn("日数そのものの前年差は出していません", rep["capacity"]["text"])
+        self.assertNotIn("月次実績が持つ前年の日数は", rep["capacity"]["text"])
 
     def test_no_year_over_year_day_count_difference(self):
         """数え方が違う日数どうしを引き算して表示しない。"""
@@ -878,12 +951,66 @@ class TestPerDayDefinitions(unittest.TestCase):
                     "前年と同じです。内訳は"):
             self.assertNotIn(bad, txt)
         # 表の日数行にも前年・差を入れない
-        row = next(r for r in rep["capacity"]["rows"] if "外来診療予定日" in r["name"])
-        self.assertEqual(row["prev"], "—")
-        self.assertEqual(row["diff"], "—")
-        self.assertIn("比較しない", row["kind"])
-        # 今月の日数そのものは出す
-        self.assertIn("今月の外来診療予定日は22日です", rep["capacity"]["text"])
+        self.assertIn("今月の外来診療日数は21日です", rep["capacity"]["text"])
+
+    def test_old_snapshot_shows_not_computable(self):
+        """外来診療日数が無い古いスナップショットでは、誤った値を出さず算出不可とする。"""
+        rep = self._rep(thursday_closed=True, with_outpatient_days=False)
+        f = rep["facts"]
+        self.assertFalse(f["has_outpatient_days"])
+        # 混合分母の per-day を作らない
+        for k in ("per_day_now", "ins_per_day_now", "op_per_day_actual",
+                  "op_per_day_month", "obs_per_day", "per_day_done"):
+            self.assertIsNone(f[k], k)
+        t = rep["capacity"]["text"]
+        self.assertIn("外来診療日あたり売上は算出できません", t)
+        row = next(r for r in rep["capacity"]["rows"] if r["name"] == "外来診療日あたり売上")
+        self.assertEqual(row["now"], "算出不可")
+
+    def test_outpatient_days_replace_the_caveat(self):
+        """外来診療日数が取れている月は、暫定の注意書きを出さない。"""
+        rep = self._rep(thursday_closed=True)
+        self.assertTrue(rep["facts"]["has_outpatient_days"])
+        t = rep["capacity"]["text"]
+        self.assertNotIn("控えめな値", t)
+        self.assertIn("今月の外来診療日数は21日です", t)
+
+    def test_outpatient_per_day_uses_outpatient_days(self):
+        """外来診療日あたり売上の分母が外来診療日数であること。"""
+        # 2026年8月の実データに合わせる（訪問・介護の実額）
+        rep = self._rep(thursday_closed=True, visit_ins=1_466_828, care=584_800)
+        f = rep["facts"]
+        self.assertEqual(f["days_actual_outpatient"], 12)
+        self.assertEqual(f["days_month_outpatient"], 21)
+        self.assertAlmostEqual(f["op_per_day_actual"], f["obs_total"] / 12, places=6)
+        self.assertAlmostEqual(f["op_per_day_month"], f["op_now"] / 21, places=6)
+        # 2026年8月の実データでおよそ91万円 / 92万円
+        self.assertAlmostEqual(f["op_per_day_actual"] / 10000, 91, delta=0.6)
+        self.assertAlmostEqual(f["op_per_day_month"] / 10000, 92, delta=0.6)
+        t = rep["capacity"]["text"]
+        self.assertIn("外来診療を行った12日で見ると、1日あたり91万円です", t)
+        self.assertIn("外来診療21日で1日あたり92万円", t)
+        # 旧混合分母の値（84万円・88万円）を外来生産性として出さない
+        self.assertNotIn("1日あたり84万円", t)
+        self.assertNotIn("1日あたり88万円", t)
+        # 日数が一致しているので前年比較を出す（同じ外来診療日数どうし）
+        row = next(r for r in rep["capacity"]["rows"]
+                   if r["name"].startswith("外来診療日あたり売上（実績"))
+        self.assertIn("同じ外来診療日数", row["kind"])
+        self.assertNotEqual(row["prev"], "—")
+        # 月末見込みは前年側が無いので比較しない
+        m = next(r for r in rep["capacity"]["rows"]
+                 if r["name"].startswith("外来診療日あたり売上（月末見込み"))
+        self.assertEqual(m["prev"], "—")
+
+    def test_visit_care_never_enters_outpatient_numerator(self):
+        """訪問介護売上を外来診療日あたり売上の分子に入れない。"""
+        roll = make_roll(15_113_808, 6_010_211, 316_528, 13_393_890, 8_131_750, 279_770,
+                         visit_ins=1_466_828, care=584_800)
+        f = build(roll)["facts"]
+        vc = roll["visit_insurance_forecast"] + roll["care_forecast"]
+        self.assertAlmostEqual(f["op_per_day_month"], f["op_now"] / 21, places=6)
+        self.assertNotAlmostEqual(f["op_per_day_month"], (f["op_now"] + vc) / 21, places=0)
 
     def test_indicator_names_are_distinct(self):
         """2つの指標を同じ名前で並べない。"""
@@ -892,7 +1019,13 @@ class TestPerDayDefinitions(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         for n in names:
             self.assertNotEqual(n, "1診療日あたり売上")
-        self.assertIn("外来診療日あたり売上（外来保険＋自費＋物販）", names)
+        self.assertIn("外来診療日あたり売上（月末見込み・外来保険＋自費＋物販）", names)
+        # 分母を言わない曖昧な「1日あたり売上」を残さない
+        self.assertNotIn("1日あたり売上（外来保険＋自費＋物販）", names)
+        # 分母が外来診療日数だと言い切る名前を使わない
+        # 外来診療日数が取れている月だけ「外来診療日あたり」を名乗ってよい
+        self.assertTrue(rep["facts"]["has_outpatient_days"])
+        self.assertTrue(any(n.startswith("外来診療日あたり売上") for n in names))
 
     def test_august_report_has_no_six_month_decline(self):
         """本番に出ていた「6か月続けて低下」が現在の2026年8月レポートに出ない。"""
