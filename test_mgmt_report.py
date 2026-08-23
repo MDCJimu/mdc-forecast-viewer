@@ -29,7 +29,11 @@ def make_roll(insurance, selfpay, product,
               patients=950, patients_prev=900,
               cancel_rate=15.1, cancel_rate_prev=15.7,
               actual_to_date=None, remaining_forecast=None,
-              care_revision="2026-06"):
+              care_revision="2026-06",
+              obs_days=13, obs_total=10_912_740, obs_outp=7_727_810,
+              obs_jihi=2_981_000, obs_buppin=203_930,
+              obs_prev_total=11_878_440, obs_prev_rate=-8.1,
+              pyd_days=15, pyd_outp=7_264_860, pyd_jihi=5_585_250, pyd_buppin=185_990):
     total = insurance + selfpay + product
     prev_total = insurance_prev + selfpay_prev + product_prev
     if outpatient is None:
@@ -79,6 +83,18 @@ def make_roll(insurance, selfpay, product,
         "actual_data_through": "2026-08-21",
         "care_component": {"care_revision_month": care_revision,
                            "care_data_insufficient": True},
+        "progress_through_yesterday": {
+            "current_cutoff": "2026-08-21", "prev_year_cutoff": "2025-08-21",
+            "current": {"total": obs_total, "insurance_outpatient": obs_outp,
+                        "selfpay": obs_jihi, "product": obs_buppin,
+                        "clinic_days": obs_days},
+            "prev_year_same_day": {"total": 13_036_100, "insurance_outpatient": pyd_outp,
+                                   "selfpay": pyd_jihi, "product": pyd_buppin,
+                                   "clinic_days": pyd_days},
+            "prev_year_same_bizdays": {"total": obs_prev_total, "clinic_days": obs_days,
+                                       "diff_vs_current": obs_total - obs_prev_total,
+                                       "rate": obs_prev_rate},
+        },
         "supplementary": {
             "visit": {"available": True, "forecast": visit, "prevyear": visit_prev,
                       "actual_to_date": int(visit * 0.6)},
@@ -92,6 +108,35 @@ def make_roll(insurance, selfpay, product,
     }
 
 
+def hist_rows(selfpay=None, per_day_trend=None):
+    """直近12か月の月次実績。年月・区分・診療日数だけを持つ最小形。"""
+    base = [
+        ("2025-08", 21805410, 13393890, 8131750, 279770, 23),
+        ("2025-09", 19752670, 13693510, 5869820, 189340, 24),
+        ("2025-10", 18072000, 14510000, 3320000, 242000, 26),
+        ("2025-11", 20380000, 13930000, 6250000, 190000, 23),
+        ("2025-12", 19320000, 14920000, 4140000, 260000, 24),
+        ("2026-01", 20460000, 14070000, 6150000, 250000, 23),
+        ("2026-02", 20560000, 12490000, 7780000, 290000, 22),
+        ("2026-03", 23230000, 14580000, 8300000, 350000, 25),
+        ("2026-04", 22700000, 13220000, 9250000, 220000, 26),
+        ("2026-05", 19080000, 13420000, 5460000, 200000, 24),
+        ("2026-06", 20221040, 14963140, 5019300, 238600, 26),
+        ("2026-07", 20303270, 14481250, 5577000, 245020, 27),
+    ]
+    rows = []
+    for i, (ym, tot, hok, jih, bup, days) in enumerate(base):
+        if selfpay is not None:
+            jih = selfpay[i]
+        if per_day_trend is not None:
+            tot, days = per_day_trend[i]
+        rows.append({"年月": ym, "月間総売上": tot, "保険診療売上": hok,
+                     "自費診療売上": jih, "物販売上": bup, "診療日数": days,
+                     "外来保険売上": hok - 1_400_000 - 600_000,
+                     "訪問保険売上": 1_400_000, "介護売上": 600_000})
+    return rows
+
+
 PREV_ROW = {
     "年月": "2025-08", "診療日数": "23", "月間総売上": "21805410",
     "保険診療売上": "13393890", "自費診療売上": "8131750", "物販売上": "279770",
@@ -103,8 +148,17 @@ PREV_FC = {"as_of_date": "2026-08-21", "current_forecast_total": "21878649",
            "insurance_forecast": "15132014", "selfpay_forecast": "6429462"}
 
 
-def build(roll, prev_row=PREV_ROW, prev_fc=PREV_FC):
-    return MR.build_management_report(roll, prev_row, prev_fc)
+def build(roll, prev_row=PREV_ROW, prev_fc=PREV_FC, hist=None):
+    return MR.build_management_report(roll, prev_row, prev_fc,
+                                      hist_rows() if hist is None else hist)
+
+
+def make_roll_selfpay_real_drop(**kw):
+    """前年同月が分布の中位＝「前年が高月だった」では説明できないケース。
+    このときだけ A/B（今月計上／翌月以降）の切り分けが打ち手になる。"""
+    kw.setdefault("selfpay_prev", 6_150_000)
+    return make_roll(15_113_808, 3_000_000, 316_528,
+                     13_393_890, kw.pop("selfpay_prev"), 279_770, **kw)
 
 
 def all_text(rep):
@@ -139,14 +193,18 @@ class TestDriverDetection(unittest.TestCase):
         self.assertEqual([c.key for c in rep["cause"]["offsets"]], ["insurance", "product"])
         t = rep["cause"]["text"]
         self.assertIn("自費診療", t)
-        self.assertIn("主因", t)
         self.assertIn("+172万円", t)     # 保険は上回っていると明示される
         self.assertIn("▲212万円", t)
+        # 前年8月が上位25%の高月なので「今月が落ちた」と断定しない
+        self.assertIn("前年が高い月だった", t)
+        self.assertIn("平常の範囲", t)
+        self.assertNotIn("前年を下回る主因です", t)
         # 稼働が落ちているとは書かない（来院・患者・初診はすべて前年超のため）
         self.assertNotIn("稼働そのものが弱まって", all_text(rep))
         # 件数はすべて月末見込み。実績確定値のように書かない。
         self.assertIn("月末見込みでは", " ".join(rep["conclusion"]))
-        self.assertEqual(action_headlines(rep)[0][:2], "自費")
+        # 前年が高月なので、自費の案件棚卸しを最優先には置かない（A-1 / A-5）
+        self.assertNotIn("案件不足", action_headlines(rep)[0])
 
     def test_insurance_up_selfpay_down_total_up(self):
         """保険↑ 自費↓ 全体↑ … 主因は保険。自費は打ち消し側。"""
@@ -218,13 +276,22 @@ class TestStructure(unittest.TestCase):
         self.assertNotIn("損失額", st["text"])
         self.assertIn("可能性がある範囲", st["text"])
 
-    def test_absorption_is_mentioned_when_density_is_up(self):
-        """保険↑・1日あたり↑なら「他の曜日で吸収できている可能性」まで書く。"""
+    def test_absorption_only_when_observed_total_holds(self):
+        """吸収したと言えるのは、実測の総額が前年に負けていないときだけ。"""
+        # 実測が前年割れ（-8.1%）→ 外来保険が伸びていても「吸収」とは言わない
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
                               13_393_890, 8_131_750, 279_770,
                               baseline=22_386_557))
-        self.assertTrue(rep["structure"]["absorbed"])
-        self.assertIn("吸収できている可能性", rep["structure"]["text"])
+        self.assertFalse(rep["structure"]["absorbed"])
+        self.assertIn("観測されている範囲では", rep["structure"]["text"])
+        self.assertIn("吸収できているとまでは言えません", rep["structure"]["text"])
+        # 実測が前年並み以上 → 吸収できている
+        ok = build(make_roll(15_113_808, 6_010_211, 316_528,
+                             13_393_890, 8_131_750, 279_770,
+                             baseline=22_386_557,
+                             obs_prev_total=10_000_000, obs_prev_rate=9.1))
+        self.assertTrue(ok["structure"]["absorbed"])
+        self.assertIn("埋められている状態です", ok["structure"]["text"])
 
     def test_no_absorption_claim_when_density_is_down(self):
         rep = build(make_roll(11_500_000, 5_000_000, 200_000,
@@ -296,11 +363,12 @@ class TestSelfpayRange(unittest.TestCase):
 
     def test_selfpay_deepdive_has_confirmed_and_remaining(self):
         """不足額だけで終わらせず、確定済み・月内見込み・切り分け方まで出す。"""
-        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
-                              13_393_890, 8_131_750, 279_770))
+        rep = build(make_roll_selfpay_real_drop())
         t = rep["selfpay"]["text"]
         self.assertIn("すでに計上されている自費", t)
-        self.assertIn("月末までに見込んでいる残り", t)
+        # 303万円が月末総額に見えないよう、合計まで書く
+        self.assertIn("残りの期間に追加で計上される見込み", t)
+        self.assertIn("合わせて月末", t)
         a = next(a for a in rep["actions"] if a["headline"].startswith("自費"))
         self.assertIn("時期のずれ", a["decide"])
         self.assertIn("案件そのもの", a["decide"])
@@ -333,16 +401,65 @@ class TestActionQuality(unittest.TestCase):
         self.assertLessEqual(len(rep["actions"]), MR.MAX_ACTIONS)
         tiers = [a["tier"] for a in rep["actions"]]
         self.assertEqual(tiers, sorted(tiers))
-        for i in range(len(rep["actions"]) - 1):
-            a, b = rep["actions"][i], rep["actions"][i + 1]
-            if a["tier"] == b["tier"]:
-                self.assertGreaterEqual(a["impact"], b["impact"])
+        # 順位は tier → 着地への直接性 → 緊急性 → 根拠の確度 で決まる
+        keys = [(a["tier"], a["directness"], a["urgency"], a["confidence"])
+                for a in rep["actions"]]
+        self.assertEqual(keys, sorted(keys))
+
+    def test_amount_never_decides_order_across_kinds(self):
+        """性質の違う金額どうしの大小で順位が決まっていないこと。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770,
+                              baseline=22_386_557))
+        acts = rep["actions"]
+        for i in range(len(acts) - 1):
+            a, b = acts[i], acts[i + 1]
+            if a["amount_kind"] == b["amount_kind"]:
+                continue
+            # 種別が違う組では、金額が小さい側が上に来ることを許す。
+            # つまり金額の大小は順位を決めていない。
+            axes_a = (a["tier"], a["directness"], a["urgency"], a["confidence"])
+            axes_b = (b["tier"], b["directness"], b["urgency"], b["confidence"])
+            self.assertLessEqual(axes_a, axes_b,
+                                 f"{a['headline']} / {b['headline']}")
+        # 実データでは、金額の大きい自費(関連差額212万)より
+        # 金額の小さい必要ペース(着地リスク57万)が上に来る
+        names = action_headlines(rep)
+        self.assertLess(next(i for i, h in enumerate(names) if "必要なペース" in h),
+                        next(i for i, h in enumerate(names) if "水準で確認" in h))
+
+    def test_every_amount_declares_what_it_means(self):
+        """並べ替えに使う金額は、何を表すのかを必ず持つ（根拠のない影響額を出さない）。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770,
+                              baseline=22_386_557))
+        for a in rep["actions"] + rep["next_month_actions"]:
+            self.assertIn(a["amount_kind"], MR.AMOUNT_KINDS, a["headline"])
+            if a["amount_kind"] == "金額換算なし":
+                self.assertEqual(a["amount"], 0.0, a["headline"])
+            else:
+                self.assertGreater(a["amount"], 0.0, a["headline"])
 
     def test_biggest_contributor_comes_first(self):
-        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
-                              13_393_890, 8_131_750, 279_770))
+        """分布で説明できない落ち込みなら、その区分が最優先に立つ。"""
+        rep = build(make_roll_selfpay_real_drop())
         self.assertEqual(rep["actions"][0]["tier"], MR.T_DRIVER)
         self.assertIn("自費", rep["actions"][0]["headline"])
+
+    def test_top_action_is_the_most_direct_and_grounded(self):
+        """着地に直接効き、根拠が実測のものが先頭に来る。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770))
+        top = rep["actions"][0]
+        self.assertEqual(top["directness"], 1)
+        self.assertEqual(top["urgency"], 1)
+        self.assertEqual(top["confidence"], 1)     # 実測から言える
+        self.assertIn("必要なペース", top["headline"])
+        self.assertTrue(all(a["inmonth"] for a in rep["actions"]))
+        # 自費は水準監視として残るが、金額が大きくても最優先ではない
+        self.assertTrue(any("水準で確認" in h for h in action_headlines(rep)))
+        sp = next(a for a in rep["actions"] if "水準で確認" in a["headline"])
+        self.assertGreater(sp["amount"], top["amount"])   # 金額は上、順位は下
 
     def test_no_banned_phrases(self):
         """禁止表現を出さない。"""
@@ -375,14 +492,21 @@ class TestActionQuality(unittest.TestCase):
         self.assertTrue(any("キャンセル率の上昇" in h for h in action_headlines(bad)),
                         action_headlines(bad))
 
-    def test_low_priority_action_is_dropped_when_bigger_issues_exist(self):
-        """細かい問題を5件並べず、経営インパクトの大きいものを残す。"""
+    def test_structural_items_are_moved_out_of_this_month(self):
+        """今月動かせないテーマが ACTION 1〜5 の枠を占めない（A-5）。"""
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
                               13_393_890, 8_131_750, 279_770,
-                              cancel_rate=19.0, cancel_rate_prev=15.7))
-        self.assertEqual(len(rep["actions"]), MR.MAX_ACTIONS)
-        self.assertTrue(all(a["tier"] <= MR.T_STRUCTURE for a in rep["actions"]))
-        self.assertFalse(any("キャンセル率の上昇" in h for h in action_headlines(rep)))
+                              baseline=22_386_557))
+        self.assertLessEqual(len(rep["actions"]), MR.MAX_ACTIONS)
+        self.assertTrue(all(a["inmonth"] for a in rep["actions"]))
+        # 木曜休診・介護は来月以降の枠にある
+        later = [a["headline"] for a in rep["next_month_actions"]]
+        self.assertTrue(any("木曜休診" in h for h in later), later)
+        self.assertTrue(any("介護" in h for h in later), later)
+        self.assertFalse(any("木曜休診" in h for h in action_headlines(rep)))
+        self.assertFalse(any("介護" in h for h in action_headlines(rep)))
+        for a in rep["next_month_actions"]:
+            self.assertFalse(a["inmonth"])
 
 
 # ======================================================================
@@ -483,8 +607,7 @@ class TestConsistency(unittest.TestCase):
 
     def test_selfpay_action_does_not_excuse_this_month(self):
         """「来月積み上がるから今月の着地はそのままでよい」と読める文を出さない。"""
-        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
-                              13_393_890, 8_131_750, 279_770))
+        rep = build(make_roll_selfpay_real_drop())
         a = next(a for a in rep["actions"] if a["headline"].startswith("自費"))
         d = a["decide"]
         self.assertIn("下方に見直します", d)
@@ -504,6 +627,10 @@ class TestConsistency(unittest.TestCase):
         # 来院・患者・初診・1日あたり・1来院あたりを含む文には「見込み」系の語が要る
         import re
         for sent in [x for x in re.split("。", cap) if x.strip()]:
+            if ("実績で見ると" in sent or "実績" in sent[:6]
+                    or "区分別の1日あたり" in sent or "内訳は、売上が確定している" in sent
+                    or "前年を同じ診療日数まで累計した" in sent):
+                continue          # 実測を述べた文はそのまま断定してよい
             if any(k in sent for k in ("来院回数", "1診療日あたり", "1来院あたり", "診療日数")):
                 self.assertTrue(any(k in sent for k in ("見込み", "計算です", "実績のある日数")),
                                 f"予測値が断定形: {sent}")
@@ -511,12 +638,14 @@ class TestConsistency(unittest.TestCase):
         concl = " ".join(rep["conclusion"])
         if "来院回数" in concl:
             self.assertIn("月末見込みでは", concl)
-        # 稼働表：今月側が見込みか実績かを行ごとに持っている
+        # 稼働表：今月側が見込みか実績か、前年側が何との比較かを行ごとに持っている
         for r in rep["capacity"]["rows"]:
-            self.assertIn(r.get("kind"), ("見込み", "実績"), r["name"])
+            k = r.get("kind") or ""
+            self.assertTrue(k.startswith("実績") or k.startswith("月末見込み"), r["name"])
+            self.assertIn("前年", k, r["name"])
         kinds = {r["name"]: r["kind"] for r in rep["capacity"]["rows"]}
-        self.assertEqual(kinds.get("キャンセル率"), "実績")
-        self.assertEqual(kinds.get("来院回数"), "見込み")
+        self.assertTrue(kinds.get("キャンセル率", "").startswith("実績"))
+        self.assertTrue(kinds.get("来院回数", "").startswith("月末見込み"))
 
     def test_percent_sign_matches_amount_sign(self):
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
@@ -526,6 +655,124 @@ class TestConsistency(unittest.TestCase):
                 self.assertLess(r["rate"], 0, r["name"])
             elif r["diff"] > 0:
                 self.assertGreater(r["rate"], 0, r["name"])
+
+
+# ======================================================================
+class TestDistributionAxis(unittest.TestCase):
+    """A-1 / A-4: 直近12か月の分布を比較軸に使えているか。"""
+
+    def test_prev_year_high_month_is_not_called_this_month_slump(self):
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770))
+        t = rep["cause"]["text"]
+        self.assertIn("中央値", t)
+        self.assertIn("前年が高い月だった", t)
+        self.assertEqual(rep["facts"]["level_prev"]["selfpay"], "上位25%")
+        self.assertEqual(rep["facts"]["level_now"]["selfpay"], "中位")
+
+    def test_prev_year_low_month_is_not_called_this_month_boom(self):
+        """逆向き。前年が下位なら「今月が伸びた」と断定しない。"""
+        rep = build(make_roll(15_113_808, 8_000_000, 316_528,
+                              13_393_890, 3_320_000, 279_770))
+        self.assertIn("前年が低い月だった", rep["cause"]["text"])
+
+    def test_no_outlier_note_when_prev_year_is_mid(self):
+        """前年が中位なら余計な但し書きを足さない。"""
+        rep = build(make_roll(15_113_808, 3_000_000, 316_528,
+                              13_393_890, 6_150_000, 279_770))
+        self.assertNotIn("前年が高い月だった", rep["cause"]["text"])
+        self.assertNotIn("前年が低い月だった", rep["cause"]["text"])
+
+    def test_record_level_is_surfaced(self):
+        """直近12か月で最高／最低の水準は結論で拾う（A-4）。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770))
+        concl = " ".join(rep["conclusion"])
+        self.assertEqual(rep["facts"]["level_now"]["insurance"], "最高")
+        self.assertIn("最高水準", concl)
+        self.assertIn("保険診療", concl)
+
+    def test_no_distribution_when_history_missing(self):
+        """履歴が無ければ分布の話はしない（推測で作らない）。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770), hist=[])
+        self.assertFalse(rep["facts"]["hist"]["available"])
+        self.assertNotIn("中央値", rep["cause"]["text"])
+        self.assertNotIn("最高水準", " ".join(rep["conclusion"]))
+
+
+# ======================================================================
+class TestObservedFirst(unittest.TestCase):
+    """A-2 / A-3: 実測と月末見込みが混ざっていないか。"""
+
+    def test_capacity_leads_with_observed(self):
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770))
+        t = rep["capacity"]["text"]
+        self.assertTrue(t.startswith("実績で見ると"), t[:30])
+        self.assertIn("-8.1%", t)
+        self.assertIn("月末見込みでは", t)
+        # 見込みが上振れ前提を含むことを明示する
+        self.assertIn("前提を含んだ数字", t)
+        self.assertIn("実績がこの水準に達しているわけではありません", t)
+
+    def test_observed_rows_are_labelled(self):
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770))
+        kinds = {r["name"]: r["kind"] for r in rep["capacity"]["rows"]}
+        # どの前年と比べた数字なのかが、区分の表記だけで読めること
+        self.assertEqual(kinds["1診療日あたり売上（実績・訪問介護を除く）"],
+                         "実績／前年は同じ診療日数まで累計")
+        self.assertEqual(kinds["うち自費（実績・1日あたり）"],
+                         "実績／前年は暦の同じ日まで累計")
+        self.assertEqual(kinds["1診療日あたり売上（訪問・介護を除く）"],
+                         "月末見込み／前年は月末実績")
+
+    def test_structure_never_calls_forecast_observed(self):
+        """予測値を「実際には」と書かない（A-3）。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770,
+                              baseline=22_386_557))
+        t = rep["structure"]["text"]
+        self.assertNotIn("実際には", t)
+        self.assertIn("観測されている範囲では", t)
+
+
+# ======================================================================
+class TestProductivityTrend(unittest.TestCase):
+    """A-6: 1診療日あたり生産性の連続トレンド。"""
+
+    DOWN = [(21805410, 23), (19752670, 24), (18072000, 26), (20380000, 23),
+            (19320000, 24), (20460000, 23), (20560000, 22), (23230000, 25),
+            (22700000, 26), (19080000, 24), (20221040, 26), (20303270, 27)]
+
+    def test_detects_four_month_decline(self):
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770),
+                    hist=hist_rows(per_day_trend=self.DOWN))
+        tr = rep["trend"]
+        self.assertIsNotNone(tr)
+        self.assertEqual(tr["direction"], -1)
+        self.assertGreaterEqual(tr["months"], 4)
+        self.assertIn("続けて低下", tr["text"])
+        self.assertIn(f"{tr['months']}か月続けて低下", tr["text"])
+        # 日数と1日あたりを分けて読む
+        self.assertIn("診療日を増やしながら1日あたりが落ちている", tr["text"])
+        # 月内の打ち手ではなく来月以降へ
+        self.assertTrue(any("生産性" in a["headline"]
+                            for a in rep["next_month_actions"]))
+
+    def test_no_trend_when_not_monotonic(self):
+        flat = [(20000000, 25)] * 12
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770),
+                    hist=hist_rows(per_day_trend=flat))
+        self.assertIsNone(rep["trend"])
+
+    def test_no_trend_without_history(self):
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770), hist=[])
+        self.assertIsNone(rep["trend"])
 
 
 if __name__ == "__main__":

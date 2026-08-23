@@ -261,6 +261,20 @@ def read_prevyear_actual_row(ym):
     return None
 
 
+def read_history_rows():
+    """monthly_actuals.csv の全行。直近12か月の分布とトレンド判定に使う。
+
+    集計済みの月次データだけを読む（患者単位データは扱わない）。
+    読めなければ空リストを返し、分析側は分布を使わない。
+    """
+    try:
+        with open(os.path.join(DATA, HIST_DIR, F_MONTHLY_ACTUALS),
+                  encoding="utf-8-sig", newline="") as fh:
+            return [r for r in csv.DictReader(fh) if r.get("年月")]
+    except Exception:
+        return []
+
+
 def relabel_v3_summary(text):
     """月初ベースの出力レポートを表示するときのラベル補正。
 
@@ -328,9 +342,12 @@ def _render_mgmt_report(rep):
     if rep["capacity"]["text"]:
         blocks.append("<div class='h'>稼働の評価</div>")
         blocks.append(_p(rep["capacity"]["text"]))
-    if rep["structure"]:
+    if rep["structure"] or rep.get("trend"):
         blocks.append("<div class='h'>構造変化</div>")
-        blocks.append(_p(rep["structure"]["text"]))
+        if rep["structure"]:
+            blocks.append(_p(rep["structure"]["text"]))
+        if rep.get("trend"):
+            blocks.append(_p(rep["trend"]["text"]))
     blocks.append("<div class='h'>月末までの最大論点</div>")
     blocks.append(_p(rep["focus"]))
     if rep["notes"]:
@@ -411,8 +428,28 @@ def _render_actions(rep):
             f"<dt>何を判断するか</dt><dd>{_html.escape(a['decide'])}</dd>"
             "</dl></div>")
     st.markdown("".join(out), unsafe_allow_html=True)
-    st.markdown("<div class='mfc-note'>並び順は、総売上の差への効き方と月内で動かせるかどうかで"
-                "決めています。件数は最大5件です。</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mfc-note'>ここに載せるのは、今月の残り日数で結果を動かせるものだけです。"
+                "並び順は総売上への効き方と緊急度で決めています。件数は最大5件です。</div>",
+                unsafe_allow_html=True)
+
+    later = (rep or {}).get("next_month_actions") or []
+    if later:
+        st.markdown("<div class='mfc-sec'>来月以降の構造課題（今月の残り日数では動かせないもの）</div>",
+                    unsafe_allow_html=True)
+        lo = []
+        for i, a in enumerate(later, 1):
+            checks = "".join(f"<li>{_html.escape(str(c))}</li>" for c in a["check"])
+            lo.append(
+                f"<div class='mfc-a' style='border-left-color:#9AA3B0'>"
+                f"<div class='no' style='color:#9AA3B0'>NEXT {i}</div>"
+                f"<div class='hd'>{_html.escape(a['headline'])}</div>"
+                "<dl>"
+                f"<dt>対象</dt><dd>{_html.escape(a['target'])}</dd>"
+                f"<dt>理由</dt><dd>{_html.escape(a['why'])}</dd>"
+                f"<dt>確認する数字</dt><dd><ul>{checks}</ul></dd>"
+                f"<dt>何を判断するか</dt><dd>{_html.escape(a['decide'])}</dd>"
+                "</dl></div>")
+        st.markdown("".join(lo), unsafe_allow_html=True)
 
 
 # ======================================================================
@@ -1130,7 +1167,8 @@ def render(month, snap, nav=None):
     if MR is not None:
         try:
             mgmt = MR.build_management_report(
-                roll, read_prevyear_actual_row(roll.get("target_month")), _prev_fc)
+                roll, read_prevyear_actual_row(roll.get("target_month")), _prev_fc,
+                read_history_rows())
         except Exception as e:      # 分析が落ちても数値カードは出す
             st.markdown(f"<div class='mfc-note'>経営分析の生成に失敗しました（{_html.escape(str(e))}）。"
                         "数値カードは通常どおり表示しています。</div>", unsafe_allow_html=True)

@@ -146,6 +146,85 @@ def _sum(*vals):
     return out
 
 
+# ---- 直近12か月の分布（A-1 / A-4）------------------------------------
+# 前年同月1点だけで良し悪しを決めると、自費のように月ごとの振れが大きい区分で
+# 判断を誤る。同じ区分の直近12か月の分布を並べて、今月と前年がその中の
+# どこに位置するのかまで見る。
+HIST_COLS = {
+    "total": "月間総売上",
+    "insurance": "保険診療売上",
+    "selfpay": "自費診療売上",
+    "product": "物販売上",
+    "outpatient": "外来保険売上",
+    "visit_ins": "訪問保険売上",
+    "care": "介護売上",
+}
+HIST_MONTHS = 12
+SPREAD_WIDE = 0.35      # (最大-最小)/中央値 がこれを超えたら「振れの大きい区分」
+
+
+def _quantile(sorted_vals, q):
+    """線形補間の分位点。numpy を持ち込まないための最小実装。"""
+    if not sorted_vals:
+        return None
+    if len(sorted_vals) == 1:
+        return sorted_vals[0]
+    pos = (len(sorted_vals) - 1) * q
+    lo = int(pos)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (pos - lo)
+
+
+def _stats(vals):
+    vals = [v for v in (f_(x) for x in vals) if v is not None]
+    if len(vals) < 4:
+        return None
+    sv = sorted(vals)
+    n = len(sv)
+    med = _quantile(sv, 0.5)
+    return {
+        "n": n, "min": sv[0], "max": sv[-1], "mean": sum(sv) / n, "median": med,
+        "q1": _quantile(sv, 0.25), "q3": _quantile(sv, 0.75), "sorted": sv,
+        "spread": ((sv[-1] - sv[0]) / med) if med else None,
+    }
+
+
+def _level(st, v):
+    """その値が分布のどこにいるか。経営判断に意味のある粒度だけ返す。"""
+    if st is None or v is None:
+        return None
+    if v >= st["max"]:
+        return "最高"
+    if v <= st["min"]:
+        return "最低"
+    if v >= st["q3"]:
+        return "上位25%"
+    if v <= st["q1"]:
+        return "下位25%"
+    return "中位"
+
+
+def _history(target_ym, history_rows):
+    """対象月より前の直近12か月ぶんの分布を区分ごとに作る。"""
+    rows = [r for r in (history_rows or [])
+            if r.get("年月") and (not target_ym or r["年月"] < target_ym)]
+    rows.sort(key=lambda r: r["年月"])
+    rows = rows[-HIST_MONTHS:]
+    if len(rows) < 4:
+        return {"available": False, "months": [], "stats": {}, "per_day": []}
+    stats = {k: _stats([r.get(col) for r in rows]) for k, col in HIST_COLS.items()}
+    # 1診療日あたり総売上の推移（A-6）
+    per_day = []
+    for r in rows:
+        tot, days = f_(r.get("月間総売上")), f_(r.get("診療日数"))
+        per_day.append({"ym": r["年月"], "total": tot, "days": days,
+                        "per_day": (tot / days) if (tot and days) else None})
+    stats["per_day"] = _stats([x["per_day"] for x in per_day])
+    return {"available": True, "months": [r["年月"] for r in rows],
+            "stats": stats, "per_day": per_day,
+            "range": (rows[0]["年月"], rows[-1]["年月"])}
+
+
 # ======================================================================
 # 1. 事実（使える数字だけを取り出す）
 # ======================================================================
@@ -156,10 +235,14 @@ def _shift_year(ym):
         return None
 
 
-def _facts(roll, prev_year_row=None, prev_forecast_row=None):
+def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
     roll = roll or {}
     py = prev_year_row or {}
     sup = roll.get("supplementary") or {}
+    prog = roll.get("progress_through_yesterday") or {}
+    o_cur = prog.get("current") or {}
+    o_pyd = prog.get("prev_year_same_day") or {}
+    o_biz = prog.get("prev_year_same_bizdays") or {}
 
     def pyv(col):
         return f_(py.get(col))
@@ -304,6 +387,26 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None):
         "per_day_done": _div(actual_td, d_act),
         "per_day_needed": _div(remaining, d_rem),
 
+        # --- C-2. 実測（予測基準日までに実際に起きたこと）---
+        # 月末見込みと混ぜない。稼働の評価はこちらを主指標にする。
+        "obs_days": f_(o_cur.get("clinic_days")),
+        "obs_total": f_(o_cur.get("total")),
+        "obs_outpatient": f_(o_cur.get("insurance_outpatient")),
+        "obs_selfpay": f_(o_cur.get("selfpay")),
+        "obs_product": f_(o_cur.get("product")),
+        "obs_cutoff": prog.get("current_cutoff"),
+        # 同じ診療日数まで累計した前年（診療日数を揃えた比較）
+        "obs_prev_total": f_(o_biz.get("total")),
+        "obs_prev_days": f_(o_biz.get("clinic_days")),
+        "obs_diff": f_(o_biz.get("diff_vs_current")),
+        "obs_rate": f_(o_biz.get("rate")),
+        # 暦の同じ日まで累計した前年（区分別の内訳はこちらにしかない）
+        "obs_pyd_days": f_(o_pyd.get("clinic_days")),
+        "obs_pyd_outpatient": f_(o_pyd.get("insurance_outpatient")),
+        "obs_pyd_selfpay": f_(o_pyd.get("selfpay")),
+        "obs_pyd_product": f_(o_pyd.get("product")),
+        "obs_pyd_cutoff": prog.get("prev_year_cutoff"),
+
         # --- D. 構造変化 ---
         "thursday_closed": bool(roll.get("thursday_closed_target")),
 
@@ -322,6 +425,32 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None):
     f["pace_gap_yen"] = ((f["per_day_needed"] - f["per_day_done"]) * f["days_remaining"]
                          if (f["per_day_needed"] is not None and f["per_day_done"] is not None
                              and f["days_remaining"]) else None)
+
+    # 経過したが売上未反映の日の推定（実績とも残りとも別物として持つ）
+    f["per_day_unrecorded"] = _div(roll.get("elapsed_unrecorded_total"), d_unrec)
+
+    # 実測の1診療日あたり（A-2）。診療日数を揃えた前年と比べる。
+    f["obs_per_day"] = _div(f["obs_total"], f["obs_days"])
+    f["obs_prev_per_day"] = _div(f["obs_prev_total"], f["obs_prev_days"])
+    for k in ("outpatient", "selfpay", "product"):
+        f[f"obs_{k}_per_day"] = _div(f[f"obs_{k}"], f["obs_days"])
+        f[f"obs_pyd_{k}_per_day"] = _div(f[f"obs_pyd_{k}"], f["obs_pyd_days"])
+
+    # 直近12か月の分布（A-1 / A-4 / A-6）
+    f["hist"] = _history(f["target_month"], history_rows)
+    st = f["hist"]["stats"]
+    now_of = {"total": f["total"], "insurance": f["insurance"], "selfpay": f["selfpay"],
+              "product": f["product"], "outpatient": f["outpatient"],
+              "visit_ins": f["visit_ins"], "care": f["care"]}
+    prev_of = {"total": f["prev_total"], "insurance": f["insurance_prev"],
+               "selfpay": f["selfpay_prev"], "product": f["product_prev"],
+               "outpatient": f["outpatient_prev"], "visit_ins": f["visit_ins_prev"],
+               "care": f["care_prev"]}
+    f["level_now"] = {k: _level(st.get(k), v) for k, v in now_of.items()}
+    f["level_prev"] = {k: _level(st.get(k), v) for k, v in prev_of.items()}
+    f["volatile"] = {k: bool(st.get(k) and st[k]["spread"] is not None
+                             and st[k]["spread"] > SPREAD_WIDE)
+                     for k in HIST_COLS}
     return f
 
 
@@ -401,6 +530,30 @@ def _join(names):
 # ======================================================================
 # 3. 前年差の主因
 # ======================================================================
+def _prevyear_outlier(f, key):
+    """その区分について、前年同月が直近12か月の分布の端に寄っていないか。
+
+    寄っていて、かつ今月が中位に収まっているなら、前年差は「今月が悪い」
+    ではなく「前年が高かった／低かった」で説明できる。断定を避けるための判定。
+    """
+    st = (f.get("hist") or {}).get("stats", {}).get(key)
+    if not st:
+        return None
+    lv_prev, lv_now = f["level_prev"].get(key), f["level_now"].get(key)
+    if lv_prev not in ("最高", "上位25%", "最低", "下位25%"):
+        return None
+    if lv_now not in ("中位", "上位25%", "下位25%"):
+        return None
+    high = lv_prev in ("最高", "上位25%")
+    # 今月が前年と同じ側に振れているなら「前年が特殊」では説明できない
+    if high and lv_now == "上位25%":
+        return None
+    if (not high) and lv_now == "下位25%":
+        return None
+    return {"prev_level": lv_prev, "now_level": lv_now, "high": high,
+            "stats": st, "volatile": f["volatile"].get(key, False)}
+
+
 def _yoy_cause(f, comps):
     total_diff = f["yoy"]
     main = comps["main"]
@@ -429,16 +582,36 @@ def _yoy_cause(f, comps):
         parts.append(f"総売上は前年同月を{yen_sman(total_diff)}"
                      f"（{pct(f['yoy_rate'])}）{_updown(total_diff)}見込みです。")
 
+    outlier = _prevyear_outlier(f, head.key) if head is not None else None
     if head is None:
         parts.append("内訳のどの項目も前年と大きくは変わっていません。")
     else:
         direction = "下回る" if head.diff < 0 else "上回る"
         if offsets:
             off_txt = "、".join(f"{c.name}は{yen_sman(c.diff)}" for c in offsets[:2])
-            parts.append(f"一方で{off_txt}と逆向きに動いており、"
-                         f"{head.name}の{yen_sman(head.diff)}が前年を{direction}主因です。")
+            head_txt = (f"{head.name}が{yen_sman(head.diff)}"
+                        if outlier else
+                        f"{head.name}の{yen_sman(head.diff)}が前年を{direction}主因です")
+            parts.append(f"一方で{off_txt}と逆向きに動いており、前年差のほとんどは"
+                         f"{head.name}の{yen_sman(head.diff)}によるものです。"
+                         if outlier else
+                         f"一方で{off_txt}と逆向きに動いており、{head_txt}。")
         else:
             parts.append(f"{head.name}の{yen_sman(head.diff)}が最大の要因です。")
+
+    # 前年が分布の端にいる区分は「今月が悪い」と断定しない（A-1）
+    if outlier:
+        st = outlier["stats"]
+        side = "高い" if outlier["high"] else "低い"
+        parts.append(
+            f"ただし{head.name}は月ごとの振れが大きい区分で、直近{st['n']}か月は"
+            f"{yen_man(st['min'])}〜{yen_man(st['max'])}（中央値{yen_man(st['median'])}）"
+            f"の範囲で動いています。前年同月の{yen_man(head.prev)}はこの中で"
+            f"{outlier['prev_level']}にあたる{side}月でした。"
+            f"今月の{yen_man(head.now)}は{outlier['now_level']}で、"
+            f"平常の範囲に収まっています。"
+            f"前年差は「今月が落ちた」よりも「前年が{side}月だった」ことで"
+            "説明できる可能性が高い水準です。")
 
         # 打ち消しが効いている月は「何がマイナス／何が吸収／結果いくら」を1文で出す。
         offset_sum = sum(c.diff for c in main if c.ok and c.diff * head.diff < 0)
@@ -477,7 +650,7 @@ def _yoy_cause(f, comps):
 def _capacity(f):
     rows = []
 
-    def add(name, now, prev, fmt, difftxt, kind="見込み"):
+    def add(name, now, prev, fmt, difftxt, kind="月末見込み／前年は月末実績"):
         """kind は今月側の値の性格。予測から出した値は「見込み」、
         as_of時点の実データは「実績」。表の見出しと文章で混同しないため。"""
         if now is None or prev is None:
@@ -488,6 +661,16 @@ def _capacity(f):
                      "kind": kind})
         return d
 
+    # --- 実績（予測基準日まで）を先に置く。判断はここから始める。---
+    d_obs = add("1診療日あたり売上（実績・訪問介護を除く）",
+                f["obs_per_day"], f["obs_prev_per_day"], yen_man, yen_sman,
+                kind="実績／前年は同じ診療日数まで累計")
+    for key, lab in (("outpatient", "うち外来保険（実績・1日あたり）"),
+                     ("selfpay", "うち自費（実績・1日あたり）"),
+                     ("product", "うち物販（実績・1日あたり）")):
+        add(lab, f[f"obs_{key}_per_day"], f[f"obs_pyd_{key}_per_day"],
+            yen_man, yen_sman, kind="実績／前年は暦の同じ日まで累計")
+    # --- ここから月末見込み ---
     d_days = add("診療日数", f["days_month"], f["days_prev"],
                  lambda v: cnt(v, "日"), lambda v: scnt(v, "日"))
     d_pd = add("1診療日あたり売上（訪問・介護を除く）", f["per_day_now"], f["per_day_prev"],
@@ -509,7 +692,8 @@ def _capacity(f):
         d_can = f["cancel_rate"] - f["cancel_rate_prev"]
         rows.append({"name": "キャンセル率", "now": f"{f['cancel_rate']:.1f}%",
                      "prev": f"{f['cancel_rate_prev']:.1f}%", "diff": f"{d_can:+.1f}pt",
-                     "diff_raw": d_can, "rate": None, "kind": "実績"})
+                     "diff_raw": d_can, "rate": None,
+                     "kind": "実績／前年は月末実績"})
     else:
         d_can = None
 
@@ -525,26 +709,58 @@ def _capacity(f):
                     and d_pv / f["per_visit_prev"] < -DENSITY_ALERT)
 
     parts = []
+    # --- 実績で見た稼働（主指標）---
+    if d_obs is not None:
+        parts.append(f"実績で見ると、{f['obs_cutoff']}までに売上が確定している"
+                     f"{cnt(f['obs_days'], '診療日')}で1日あたり{yen_man(f['obs_per_day'])}です。"
+                     f"前年を同じ診療日数まで累計した{yen_man(f['obs_prev_per_day'])}と比べると"
+                     f"{yen_sman(d_obs)}（{pct(f['obs_rate'])}）{_updown(d_obs)}水準です。")
+        seg = []
+        for key, lab in (("outpatient", "外来保険"), ("selfpay", "自費"), ("product", "物販")):
+            a, b = f[f"obs_{key}_per_day"], f[f"obs_pyd_{key}_per_day"]
+            if a is not None and b is not None:
+                seg.append(f"{lab}{pct(rate(a, b))}")
+        if seg:
+            parts.append("区分別の1日あたりは" + "、".join(seg)
+                         + "です。区分別だけは前年の内訳が暦の同じ日まで"
+                           f"（前年{cnt(f['obs_pyd_days'], '診療日')}ぶん）でしか取れないため、"
+                           "上の総額の比較とは前年側の基準が違います。"
+                         + ("外来保険の伸びを自費の落ち込みが打ち消しています。"
+                            if (f["obs_outpatient_per_day"] and f["obs_pyd_outpatient_per_day"]
+                                and f["obs_outpatient_per_day"] > f["obs_pyd_outpatient_per_day"]
+                                and f["obs_selfpay_per_day"] is not None
+                                and f["obs_pyd_selfpay_per_day"] is not None
+                                and f["obs_selfpay_per_day"] < f["obs_pyd_selfpay_per_day"])
+                            else "区分ごとに向きが分かれています。"))
     if f["days_month"] is None or f["days_prev"] is None:
         parts.append("診療日数を前年と比べられるデータがありません。")
-    elif d_days == 0:
-        parts.append(f"今月の診療日数は{cnt(f['days_month'], '日')}の見込みで、前年と同じです"
-                     f"（うち実績のある日数{cnt(f['days_actual'], '日')}）。")
     else:
-        parts.append(f"今月の診療日数は{cnt(f['days_month'], '日')}の見込みで、"
-                     f"前年同月{cnt(f['days_prev'], '日')}に対し{scnt(d_days, '日')}です"
-                     f"（うち実績のある日数{cnt(f['days_actual'], '日')}）。")
+        head = (f"今月の診療日数は{cnt(f['days_month'], '日')}の見込みで、前年と同じです。"
+                if d_days == 0 else
+                f"今月の診療日数は{cnt(f['days_month'], '日')}の見込みで、"
+                f"前年同月{cnt(f['days_prev'], '日')}に対し{scnt(d_days, '日')}です。")
+        # 13 と 6 だけを並べると 22 と合わずに見えるため、3つとも書く。
+        parts.append(head + f"内訳は、売上が確定している{cnt(f['days_actual'], '日')}、"
+                     f"すでに終わったが売上がまだ入っていない{cnt(f['days_unrecorded'], '日')}、"
+                     f"これから診療する{cnt(f['days_remaining'], '日')}です。")
 
+    # --- 月末見込み（予測前提を含むことを明示）---
     if d_pd is not None:
-        parts.append("1診療日あたりの売上（外来保険＋自費＋物販）は、月末見込みで"
+        tail = ""
+        if f["pace_gap_rate"] is not None and f["pace_gap_rate"] > PACE_ALERT:
+            tail = (f"ただしこれは、これから診療する{cnt(f['days_remaining'], '日')}に1日あたり"
+                    f"{yen_man(f['per_day_needed'])}を積む前提を含んだ数字です。"
+                    f"売上が確定している{cnt(f['days_actual'], '日')}の平均は"
+                    f"{yen_man(f['per_day_done'])}で、必要な水準は"
+                    f"これを{pct(f['pace_gap_rate'] * 100)}上回ります"
+                    + (f"（売上がまだ入っていない{cnt(f['days_unrecorded'], '日')}は"
+                       f"1日あたり{yen_man(f['per_day_unrecorded'])}の推定）"
+                       if f["per_day_unrecorded"] else "")
+                    + "。実績がこの水準に達しているわけではありません。")
+        parts.append("月末見込みでは1診療日あたり"
                      f"{yen_man(f['per_day_now'])}となり、前年実績{yen_man(f['per_day_prev'])}を"
                      f"{yen_sman(d_pd)}（{pct(rate(f['per_day_now'], f['per_day_prev']))}）"
-                     f"{_updown(d_pd)}見込みです。")
-    if ins_density_up:
-        parts.append(f"うち外来保険は1日あたり{yen_man(f['ins_per_day_now'])}の見込みで、前年実績"
-                     f"{yen_man(f['ins_per_day_prev'])}を"
-                     f"{pct(rate(f['ins_per_day_now'], f['ins_per_day_prev']))}上回る計算です。"
-                     "1日に診ている量は前年より厚くなる見込みです。")
+                     f"{_updown(d_pd)}計算です。" + tail)
     if d_vis is not None:
         parts.append(f"来院回数は{cnt(f['visit'], '回')}の見込みで前年実績{cnt(f['visit_prev'], '回')}を"
                      f"{scnt(d_vis, '回')}（{pct(rate(f['visit'], f['visit_prev']))}）"
@@ -556,17 +772,17 @@ def _capacity(f):
                      "来院は増える一方で、1回あたりの単価は下がる見込みです。")
 
     if f["pace_gap_rate"] is not None and f["days_remaining"]:
-        if f["pace_gap_rate"] > PACE_ALERT:
-            parts.append(f"残り{cnt(f['days_remaining'], '日')}は1日あたり"
-                         f"{yen_man(f['per_day_needed'])}を見込んでおり、今月ここまでの平均"
-                         f"{yen_man(f['per_day_done'])}を{pct(f['pace_gap_rate'] * 100)}"
-                         "上回るペースが前提です。")
-        elif f["pace_gap_rate"] < -PACE_ALERT:
+        if f["pace_gap_rate"] < -PACE_ALERT:
             parts.append(f"残り{cnt(f['days_remaining'], '日')}は1日あたり"
                          f"{yen_man(f['per_day_needed'])}の見込みで、今月ここまでの平均"
                          f"{yen_man(f['per_day_done'])}を下回る控えめな前提です。")
 
+    obs_down = (d_obs is not None and d_obs < 0)
+    obs_ins_up = (f["obs_outpatient_per_day"] is not None
+                  and f["obs_pyd_outpatient_per_day"]
+                  and f["obs_outpatient_per_day"] > f["obs_pyd_outpatient_per_day"])
     return {"text": "".join(parts), "rows": rows,
+            "obs_diff": d_obs, "obs_down": obs_down, "obs_ins_up": obs_ins_up,
             "volume_up": volume_up, "density_up": density_up, "density_dn": density_dn,
             "ins_density_up": ins_density_up, "per_visit_dn": per_visit_dn,
             "days_diff": d_days, "visit_diff": d_vis, "shoshin_diff": d_sho,
@@ -597,33 +813,76 @@ def _structure(f, cap):
              f"これは{label}による診療日数の減少で説明できる可能性がある範囲であり、"
              "確定した損失ではありません。"]
 
+    # 吸収できているかは、実測だけで語る。見込み値を根拠に「実際には」とは書かない。
     absorbed = False
-    if cap["ins_density_up"] or (cap["density_up"] and cap["volume_up"]):
+    if cap["obs_ins_up"]:
+        a, b = f["obs_outpatient_per_day"], f["obs_pyd_outpatient_per_day"]
+        parts.append(f"観測されている範囲では、1診療日あたりの外来保険は{yen_man(a)}で"
+                     f"前年{yen_man(b)}を{pct(rate(a, b))}上回っており、"
+                     f"{label}の患者が他の曜日へ回っている可能性はあります。")
+    if cap["obs_down"]:
+        parts.append("ただし同じ診療日数まで累計した売上全体では前年を"
+                     f"{pct(f['obs_rate'])}下回っており、"
+                     f"{label}で減った分を吸収できているとまでは言えません。")
+    elif cap["obs_ins_up"] and cap["obs_diff"] is not None and cap["obs_diff"] >= 0:
         absorbed = True
-        ev = []
-        if f["visit_per_day_now"] is not None and f["visit_per_day_prev"] is not None:
-            ev.append(f"1診療日あたりの来院回数は{f['visit_per_day_now']:.1f}回で前年"
-                      f"{f['visit_per_day_prev']:.1f}回を"
-                      f"{pct(rate(f['visit_per_day_now'], f['visit_per_day_prev']))}")
-        if cap["ins_density_up"]:
-            ev.append(f"1診療日あたりの外来保険は{yen_man(f['ins_per_day_now'])}で前年"
-                      f"{yen_man(f['ins_per_day_prev'])}を"
-                      f"{pct(rate(f['ins_per_day_now'], f['ins_per_day_prev']))}")
-        if ev:
-            joined = "、".join([e + "上回り" for e in ev[:-1]]
-                               + [ev[-1] + "上回っている"])
-            parts.append("実際には" + joined + "ため、"
-                         f"{label}で減った分の一部は他の曜日への来院の集中で"
-                         "吸収できている可能性があります。")
-    elif cap["density_dn"]:
-        parts.append("1診療日あたりの売上は前年を下回っており、"
-                     f"{label}で減った分が他の曜日で埋まっている様子は今のところ見えません。")
+        parts.append("売上全体でも同じ診療日数の前年を下回っておらず、"
+                     f"{label}で減った分は他の曜日で埋められている状態です。")
+    elif cap["obs_diff"] is None:
+        parts.append("実測での比較に必要なデータがないため、"
+                     "吸収できているかどうかはこの画面では判定できません。")
 
     if f["days_diff"] is not None and f["days_diff"] < 0:
         parts.append(f"診療日数そのものは前年より{scnt(f['days_diff'], '日')}です。")
 
     return {"text": "".join(parts), "short": "".join(parts[:2]), "gap": gap,
             "label": label, "absorbed": absorbed, "negligible": False}
+
+
+def _productivity_trend(f):
+    """1診療日あたり総売上が3か月以上続けて同じ向きに動いていないか（A-6）。
+
+    「売上が減っている」で止めず、診療日数と1日あたりに分けて読む。
+    日数を増やしながら1日あたりが落ちている、という形は打ち手が変わる。
+    """
+    hist = f.get("hist") or {}
+    series = [x for x in (hist.get("per_day") or []) if x["per_day"]]
+    if len(series) < 4:
+        return None
+    run, direction = 1, 0
+    for i in range(len(series) - 1, 0, -1):
+        d = series[i]["per_day"] - series[i - 1]["per_day"]
+        cur_dir = 1 if d > 0 else (-1 if d < 0 else 0)
+        if cur_dir == 0:
+            break
+        if direction == 0:
+            direction = cur_dir
+        elif cur_dir != direction:
+            break
+        run += 1
+    if run < 3 or direction == 0:
+        return None
+
+    seg = series[-run:]
+    word = "低下" if direction < 0 else "上昇"
+    chain = " → ".join(f"{x['ym'][5:7]}月 {x['per_day'] / MAN:.1f}万円" for x in seg)
+    d_days = seg[-1]["days"] - seg[0]["days"]
+    parts = [f"1診療日あたりの総売上が{run}か月続けて{word}しています（{chain}）。"]
+    if d_days > 0 and direction < 0:
+        parts.append(f"同じ期間に診療日数は{cnt(seg[0]['days'], '日')}から"
+                     f"{cnt(seg[-1]['days'], '日')}へ{scnt(d_days, '日')}増えており、"
+                     "診療日を増やしながら1日あたりが落ちている形です。"
+                     "月の売上が保たれていても、1日あたりの生産性は下がっています。")
+    elif d_days < 0 and direction < 0:
+        parts.append(f"同じ期間に診療日数も{scnt(d_days, '日')}減っており、"
+                     "日数と1日あたりの両方が下がっています。")
+    else:
+        parts.append(f"同じ期間の診療日数は{cnt(seg[0]['days'], '日')}から"
+                     f"{cnt(seg[-1]['days'], '日')}です。")
+    parts.append("これは今月だけの動きではないため、月内の打ち手ではなく"
+                 "来月以降の構造として扱います。")
+    return {"text": "".join(parts), "months": run, "direction": direction,
+            "series": seg, "days_diff": d_days}
 
 
 # ======================================================================
@@ -648,13 +907,21 @@ def _selfpay_view(f, comps):
     hv = _hv_range(f)
     ins = next((c for c in comps["main"] if c.key == "insurance"), None)
 
+    outlier = _prevyear_outlier(f, "selfpay")
     parts = []
     if sp.material:
         parts.append(f"自費は前年を{yen_sman(sp.diff)}（{pct(sp.rate)}）{_updown(sp.diff)}見込みです。")
     else:
         parts.append(f"自費は{yen_man(sp.now)}の見込みで、前年{yen_man(sp.prev)}とほぼ同水準です。")
 
-    if (ins is not None and ins.material and sp.material and f["yoy"]
+    if outlier:
+        st = outlier["stats"]
+        side = "高い" if outlier["high"] else "低い"
+        parts.append(f"ただし直近{st['n']}か月の自費は{yen_man(st['min'])}〜{yen_man(st['max'])}"
+                     f"（中央値{yen_man(st['median'])}）で動いており、今月の{yen_man(sp.now)}は"
+                     f"{outlier['now_level']}です。前年同月は{outlier['prev_level']}の{side}月で、"
+                     "前年差の大きさは自費の月次変動の範囲で説明できます。")
+    elif (ins is not None and ins.material and sp.material and f["yoy"]
             and ins.diff * sp.diff < 0):
         share = abs(sp.diff) / abs(f["yoy"])
         if share >= 0.8:
@@ -662,8 +929,9 @@ def _selfpay_view(f, comps):
                          "今月の前年差は自費でほぼ説明できます。")
 
     if f["selfpay_confirmed"] is not None:
-        parts.append(f"今月すでに計上されている自費は{yen_man(f['selfpay_confirmed'])}、"
-                     f"月末までに見込んでいる残りは{yen_man(f['selfpay_remaining'])}です。")
+        parts.append(f"今月すでに計上されている自費は{yen_man(f['selfpay_confirmed'])}で、"
+                     f"残りの期間に追加で計上される見込みが{yen_man(f['selfpay_remaining'])}、"
+                     f"合わせて月末{yen_man(sp.now)}という組み立てです。")
 
     if f["target_sales"] is None:
         parts.append("自費の月次目標はデータに登録されていないため、目標との差は出していません。")
@@ -684,10 +952,59 @@ def _selfpay_view(f, comps):
 # ======================================================================
 # 7. 打ち手の生成
 # ======================================================================
-def _act(headline, target, why, check, decide, tier, impact):
+# 並べ替えに使う金額の意味。名前を付けずに「影響額」とだけ書くと、
+# その打ち手で動かせる金額だと誤解される。中身が違うものは違う名前で持つ。
+AMOUNT_KINDS = ("前年差寄与", "着地リスク", "回復可能額", "関連差額", "金額換算なし")
+
+
+# 並び順を決める軸。金額ではなくこの3つで決める。いずれも 1 が高い。
+#   directness … 手を打つと今月の着地が動くか
+#   urgency    … 残り日数のうちに動かないと取り返せないか
+#   confidence … その判断の根拠が実測か、予測前提を含むか、仮説か
+AXIS_LABELS = {
+    "directness": {1: "着地に直接効く", 2: "今月の判断材料になる", 3: "主に来月以降に効く"},
+    "urgency": {1: "残り日数内に動く必要がある", 2: "今月中に確認すればよい", 3: "締切なし"},
+    "confidence": {1: "実測から言える", 2: "予測前提を含む", 3: "仮説"},
+}
+
+
+def _act(headline, target, why, check, decide, tier, amount, amount_kind,
+         inmonth=True, directness=2, urgency=2, confidence=2):
+    """amount は打ち手の意味を説明する補助情報であって、順位は決めない。
+
+    性質の違う金額（前年差寄与・着地リスク・回復可能額…）を大小比較しても
+    経営上の意味がないため、順位は tier と上の3軸で決める。amount は
+    同じ amount_kind どうしの並びを整えるときにだけ使う。
+
+    inmonth=False は今月の残り日数では結果を動かせないもの。
+    月内の打ち手と混ぜず、来月以降の構造課題として別枠に出す。
+    """
+    assert amount_kind in AMOUNT_KINDS, amount_kind
+    for k, v in (("directness", directness), ("urgency", urgency),
+                 ("confidence", confidence)):
+        assert v in (1, 2, 3), (k, v)
     return {"headline": headline, "target": target, "why": why,
             "check": check, "decide": decide, "tier": tier,
-            "impact": abs(impact) if impact is not None else 0.0}
+            "amount": abs(amount) if amount is not None else 0.0,
+            "amount_kind": amount_kind, "inmonth": bool(inmonth),
+            "directness": directness, "urgency": urgency, "confidence": confidence}
+
+
+def _rank(actions):
+    """順位づけ。異なる amount_kind の金額どうしは比較しない。
+
+    金額を使うのは「同じ amount_kind の中での並び」を決めるところだけで、
+    その結果は順位そのものではなく、上の軸が全部同点になったときの
+    最後の手がかりとしてしか効かない。
+    """
+    rank_in_kind = {}
+    for kind in AMOUNT_KINDS:
+        same = sorted([a for a in actions if a["amount_kind"] == kind],
+                      key=lambda a: -a["amount"])
+        for i, a in enumerate(same):
+            rank_in_kind[id(a)] = i
+    return sorted(actions, key=lambda a: (a["tier"], a["directness"], a["urgency"],
+                                          a["confidence"], rank_in_kind[id(a)]))
 
 
 def _actions(f, comps, cause, cap, stru, spv):
@@ -700,7 +1017,27 @@ def _actions(f, comps, cause, cap, stru, spv):
     n_rem = cnt(f["days_remaining"], "日") if f["days_remaining"] is not None else "残り"
 
     # --- 自費が前年割れ ---------------------------------------------------
-    if sp is not None and sp.material and sp.diff < 0:
+    sp_outlier = _prevyear_outlier(f, "selfpay") if sp is not None else None
+    if sp is not None and sp.material and sp.diff < 0 and sp_outlier:
+        # 前年が高月で今月が平常範囲。案件棚卸しではなく、水準の監視に切り替える。
+        st = sp_outlier["stats"]
+        out.append(_act("自費が平常の範囲に収まっているかを、前年比ではなく水準で確認する",
+                        "自費の月次水準",
+                        f"自費は前年を{yen_sman(sp.diff)}下回りますが、前年同月"
+                        f"{yen_man(sp.prev)}は直近{st['n']}か月で{sp_outlier['prev_level']}の"
+                        f"高い月でした。今月の{yen_man(sp.now)}は中央値{yen_man(st['median'])}"
+                        "と同水準で、構造的に減っている証拠は現時点ではありません。",
+                        [f"直近{st['n']}か月の自費の並び"
+                         f"（{yen_man(st['min'])}〜{yen_man(st['max'])}）における今月の位置",
+                         f"確定した自費 {yen_man(f['selfpay_confirmed'])}＋"
+                         f"残り期間の追加見込み {yen_man(f['selfpay_remaining'])}"
+                         f"＝月末{yen_man(sp.now)}という内訳"],
+                        f"今月が下位25%（{yen_man(st['q1'])}未満）に入っていなければ、"
+                        "月内の追加対応は不要です。2か月続けて下位25%に入った場合にだけ、"
+                        "案件不足として初診からの自費相談の導線を見直します。",
+                        T_LEADING, abs(sp.diff), "関連差額",
+                        directness=2, urgency=2, confidence=1))
+    elif sp is not None and sp.material and sp.diff < 0:
         why = [f"自費は前年を{yen_sman(sp.diff)}下回る見込みです。"]
         if ins is not None and ins.material and ins.diff > 0:
             why.append(f"保険は前年を{yen_sman(ins.diff)}上回っているため、"
@@ -709,14 +1046,16 @@ def _actions(f, comps, cause, cap, stru, spv):
         if f["selfpay_confirmed"] is not None:
             check.append(f"今月すでに計上された自費 {yen_man(f['selfpay_confirmed'])}")
         if f["selfpay_remaining"] is not None:
-            check.append(f"月末までに見込んでいる自費 {yen_man(f['selfpay_remaining'])}")
+            check.append(f"残りの期間に追加で計上される見込みの自費 "
+                         f"{yen_man(f['selfpay_remaining'])}"
+                         f"（確定分と合わせて月末{yen_man(sp.now)}）")
         check.append("契約済み案件を A＝今月中に売上計上できるもの／"
                      "B＝翌月以降に売上計上されるもの に分けた金額")
         rem_txt = yen_man(f["selfpay_remaining"])
         decide = (
-            f"Aの合計が月末までに見込んでいる自費{rem_txt}に届くなら、"
+            f"Aの合計が、残りの期間に追加で見込んでいる自費{rem_txt}に届くなら、"
             f"今の着地見込み{yen_man(f['total'])}を維持できる根拠になります。"
-            f"Aが{rem_txt}に届かないなら、その不足分だけ今月の自費の着地を下方に見直します"
+            f"Aがこの{rem_txt}に届かないなら、その不足分だけ今月の自費の着地を下方に見直します"
             "（今月の着地は下がります）。"
             "Bが大きい場合、今月足りない分のうちBに当たる部分は案件そのものの不足ではなく"
             "売上に計上される時期のずれと判断します。"
@@ -726,7 +1065,8 @@ def _actions(f, comps, cause, cap, stru, spv):
             decide += "（高額案件の見込みレンジは自動では出せていないため、院内の管理表で数えます。）"
         out.append(_act("自費の不足が、案件不足なのか売上に計上される時期のずれなのかを切り分ける",
                         "今月分の契約済み自費案件", "".join(why), check, decide,
-                        T_DRIVER, sp.diff))
+                        T_DRIVER, sp.diff, "前年差寄与",
+                        directness=1, urgency=1, confidence=2))
 
     # --- 自費が上振れ -----------------------------------------------------
     if sp is not None and sp.material and sp.diff > 0:
@@ -738,7 +1078,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                          "来月以降に計上予定の契約済み案件の金額"],
                         "高額案件が特定の月に偏っているだけなら、来月は反動で落ちる前提で見ます。"
                         "件数そのものが増えているなら、来月以降も同じ水準を計画に入れられます。",
-                        T_DRIVER, sp.diff))
+                        T_DRIVER, sp.diff, "前年差寄与",
+                        directness=2, urgency=3, confidence=2))
 
     # --- 保険が前年割れ ---------------------------------------------------
     if ins is not None and ins.material and ins.diff < 0:
@@ -754,7 +1095,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                          f"前年{cnt(f['visit_prev'], '回')}）"],
                         "来院回数が前年並みで1日あたりが下がっているなら、処置内容や算定の問題です。"
                         "来院回数そのものが減っているなら、予約枠の埋まり方の問題として扱います。",
-                        T_DRIVER, ins.diff))
+                        T_DRIVER, ins.diff, "前年差寄与",
+                        directness=1, urgency=2, confidence=1))
 
     # --- 保険が今月を支えている（維持できるか）-----------------------------
     if (ins is not None and ins.material and ins.diff > 0
@@ -771,7 +1113,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                         check,
                         f"この水準を保てるなら着地{yen_man(f['total'])}は妥当です。"
                         f"落ちる場合は保守ライン{yen_man(f['conservative'])}側に寄るものとして見ます。",
-                        T_INMONTH, ins.diff))
+                        T_INMONTH, ins.diff, "前年差寄与",
+                        directness=1, urgency=1, confidence=2))
 
     # --- 残り期間に必要なペース --------------------------------------------
     if (f["pace_gap_rate"] is not None and f["pace_gap_rate"] > PACE_ALERT
@@ -790,7 +1133,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                         f"着地見込みとの差は{yen_man(f['conservative_gap'])}です。"
                         f"なお、必要ペースに届かない分だけを積み上げると"
                         f"{yen_man(f['pace_gap_yen'])}相当です。",
-                        T_INMONTH, f["pace_gap_yen"]))
+                        T_INMONTH, f["pace_gap_yen"], "着地リスク",
+                        directness=1, urgency=1, confidence=1))
 
     # --- 来院回数が前年割れ -------------------------------------------------
     if cap["visit_diff"] is not None and cap["visit_diff"] < 0 and f["per_visit_prev"]:
@@ -807,7 +1151,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                              "次の予約が入っていない患者の数"],
                             "既存患者の再予約で埋められる枠がどれだけあるかを見て、"
                             "着地見込みを維持できるか下方に見直すかを決めます。",
-                            T_INMONTH, loss))
+                            T_INMONTH, loss, "着地リスク",
+                        directness=1, urgency=1, confidence=2))
 
     # --- キャンセル率の悪化 --------------------------------------------------
     if (cap["cancel_diff"] is not None and cap["cancel_diff"] > CANCEL_ALERT_PT
@@ -826,7 +1171,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                         f"前年並みまで戻せば来院がおよそ{cnt(extra, '回')}、"
                         f"金額でおよそ{yen_man(loss)}戻る計算になります。"
                         "戻せない場合は、キャンセルを見込んだ予約の入れ方に変えるかを判断します。",
-                        T_LEADING, loss))
+                        T_LEADING, loss, "回復可能額",
+                        directness=2, urgency=2, confidence=1))
 
     # --- 初診 ----------------------------------------------------------------
     if cap["shoshin_diff"] is not None and f["shoshin_prev"]:
@@ -839,18 +1185,23 @@ def _actions(f, comps, cause, cap, stru, spv):
                             ["初診の流入元別の件数", "初診から2回目の予約に進んだ割合"],
                             "流入そのものが減っているなら来月以降の計画を下げます。"
                             "流入は変わらず2回目に進んでいないなら、初回の説明内容を見直します。",
-                            T_LEADING, abs(cap["shoshin_diff"]) * (f["per_visit_prev"] or 0)))
+                            T_LEADING, abs(cap["shoshin_diff"]) * (f["per_visit_prev"] or 0), "関連差額",
+                        directness=3, urgency=3, confidence=1))
         elif cap["shoshin_diff"] > 0 and sp is not None and sp.material and sp.diff < 0:
+            sp_note = ("自費は前年を下回りますが、これは前年が高い月だったことが大きく、"
+                       "今月の水準そのものは平常の範囲です。"
+                       if sp_outlier else
+                       f"自費は前年を{yen_sman(sp.diff)}下回っています。")
             out.append(_act("初診が前年を上回っているうちに、自費相談への流れを作る",
                             "今月の初診",
                             f"初診は{cnt(f['shoshin'], '件')}で前年を"
-                            f"{scnt(cap['shoshin_diff'], '件')}上回る一方、自費は前年を"
-                            f"{yen_sman(sp.diff)}下回っています。",
+                            f"{scnt(cap['shoshin_diff'], '件')}上回っています。" + sp_note,
                             ["初診のうち自費の相談・治療計画の説明まで進んだ件数",
                              "そのうち今月中に契約に至った件数"],
                             "初診は増えているのに自費の相談に進んでいないなら、"
                             "今月ではなく来月以降の自費を作る打ち手として初診対応を見直します。",
-                            T_LEADING, abs(sp.diff) * 0.2))
+                            T_LEADING, 0.0, "金額換算なし",
+                        directness=3, urgency=3, confidence=2))
 
     # --- 構造変化（診療日数）--------------------------------------------------
     if stru is not None and not stru.get("negligible"):
@@ -870,7 +1221,8 @@ def _actions(f, comps, cause, cap, stru, spv):
         out.append(_act(f"{stru['label']}で減った診療日が、他の曜日でどこまで吸収できているかを確認する",
                         "通常営業だった場合との差",
                         stru.get("short") or stru["text"], check, decide,
-                        T_STRUCTURE, stru["gap"]))
+                        T_STRUCTURE, stru["gap"], "関連差額", inmonth=False,
+                        directness=2, urgency=3, confidence=2))
 
     # --- 介護（制度改定の影響）-----------------------------------------------
     care = sub.get("care")
@@ -887,7 +1239,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                          "算定できていない項目がないか"],
                         "改定後の水準として妥当なら、来年度の計画をこの水準に置き換えます。"
                         "算定漏れがあるなら今月中に修正します。",
-                        T_STRUCTURE, care.diff))
+                        T_STRUCTURE, care.diff, "前年差寄与", inmonth=False,
+                        directness=2, urgency=3, confidence=2))
 
     # --- 訪問保険 --------------------------------------------------------------
     vi = sub.get("visit_ins")
@@ -898,7 +1251,8 @@ def _actions(f, comps, cause, cap, stru, spv):
                         ["今月の訪問した日数と訪問先の件数", "前年同月の訪問した日数"],
                         "訪問した日数が減っているなら訪問枠の組み方の問題、"
                         "日数が同じで金額が落ちているなら算定内容の問題として扱います。",
-                        T_NEXT, vi.diff))
+                        T_NEXT, vi.diff, "前年差寄与", inmonth=False,
+                        directness=3, urgency=3, confidence=2))
 
     # --- 物販 ------------------------------------------------------------------
     if prod is not None and prod.material and prod.diff < 0:
@@ -906,15 +1260,40 @@ def _actions(f, comps, cause, cap, stru, spv):
                         f"物販は{yen_man(prod.now)}の見込みで前年を{yen_sman(prod.diff)}下回ります。",
                         ["主力商品の在庫切れの有無", "自費の説明時に物販を案内した件数"],
                         "在庫切れなら発注、案内が減っているなら説明の流れに戻します。",
-                        T_NEXT, prod.diff))
+                        T_NEXT, prod.diff, "前年差寄与",
+                        directness=2, urgency=2, confidence=1))
 
-    out.sort(key=lambda a: (a["tier"], -a["impact"]))
-    return out[:MAX_ACTIONS]
+    # 生産性トレンドは今月の打ち手ではなく、来月以降の構造課題として置く（A-6）
+    trend = _productivity_trend(f)
+    if trend is not None:
+        word = "低下" if trend["direction"] < 0 else "上昇"
+        out.append(_act(f"1診療日あたりの生産性が{trend['months']}か月続けて{word}している"
+                        "原因を分解する",
+                        "診療日数と1日あたり売上",
+                        trend["text"],
+                        ["月ごとの 診療日数 / 1日あたり売上 / 1日あたり来院回数",
+                         "同じ期間の自費と外来保険の1日あたりの推移"],
+                        "1日あたり来院回数が下がっているなら予約の埋まり方の問題、"
+                        "来院回数は同じで金額が下がっているなら診療内容と単価の問題です。"
+                        "来月以降の計画をどちらの前提で置くかを決めます。",
+                        T_NEXT, 0.0, "金額換算なし", inmonth=False,
+                        directness=3, urgency=3, confidence=1))
+
+    # 今月の打ち手は「月内に動かせるもの」だけ。売上影響→緊急性の順に並べる。
+    inmonth = [a for a in out if a["inmonth"]]
+    later = [a for a in out if not a["inmonth"]]
+    return _rank(inmonth)[:MAX_ACTIONS], _rank(later)
 
 
 # ======================================================================
 # 8. 今月の結論 / 月末までの最大論点
 # ======================================================================
+def now_of_key(f, key):
+    return {"total": f["total"], "insurance": f["insurance"], "selfpay": f["selfpay"],
+            "product": f["product"], "outpatient": f["outpatient"],
+            "visit_ins": f["visit_ins"], "care": f["care"]}.get(key)
+
+
 def _conclusion(f, comps, cause, cap):
     if f["total"] is None:
         return ["着地見込みが取得できないため、今月の結論を出せません。"]
@@ -928,14 +1307,42 @@ def _conclusion(f, comps, cause, cap):
 
     main = cause.get("main")
     offs = cause.get("offsets") or []
+    out = _prevyear_outlier(f, main.key) if main is not None else None
     if main is not None:
-        if offs:
+        if out:
+            # 前年が分布の端にいる区分は「今月が落ちた／伸びた」と断定しない（A-1）
+            side = "高い" if out["high"] else "低い"
+            st = out["stats"]
+            s.append(f"前年差のほとんどは{main.name}の{yen_sman(main.diff)}によるものですが、"
+                     f"前年同月の{yen_man(main.prev)}は直近{st['n']}か月で"
+                     f"{out['prev_level']}にあたる{side}月でした。"
+                     f"今月の{yen_man(main.now)}は中央値{yen_man(st['median'])}と同水準で、"
+                     f"{main.name}が落ち込んだというより前年が{side}月だったと見るのが妥当です。")
+        elif offs:
             s.append(f"内訳では{_join([c.name for c in offs[:2]])}が前年を上回る一方、"
                      f"{main.name}が{yen_sman(main.diff)}で、これが前年差の主因です。")
         else:
             s.append(f"内訳では{main.name}の{yen_sman(main.diff)}が最大の要因です。")
     elif cause.get("flat"):
         s.append("内訳にも前年から大きく動いた項目はありません。")
+
+    # 前年比だけでは意味が伝わらない水準を拾う（A-4）
+    hist = f.get("hist") or {}
+    if hist.get("available"):
+        n = (hist["stats"].get("total") or {}).get("n", HIST_MONTHS)
+        NAMES = {"total": "総売上", "insurance": "保険診療", "selfpay": "自費診療",
+                 "product": "物販"}
+        notable = []
+        for k in ("insurance", "selfpay", "product", "total"):
+            lv = f["level_now"].get(k)
+            if lv in ("最高", "最低"):
+                st = hist["stats"].get(k) or {}
+                prev_best = st.get("max") if lv == "最高" else st.get("min")
+                notable.append(
+                    f"{NAMES[k]}の{yen_man(now_of_key(f, k))}は直近{n}か月で{lv}水準です"
+                    f"（これまでの{lv}は{yen_man(prev_best)}）")
+        if notable:
+            s.append("、".join(notable) + "。")
 
     ups, downs = [], []
     for name, d in (("来院回数", cap["visit_diff"]), ("患者数", cap["patient_diff"]),
@@ -947,6 +1354,9 @@ def _conclusion(f, comps, cause, cap):
     # 「稼働が主因ではない」と言えるのは、売上が前年を下回っている月だけ。
     down_month = (f["yoy"] is not None and f["yoy"] < 0
                   and is_material(f["yoy"], f["prev_total"]))
+    if cap.get("obs_diff") is not None:
+        s.append(f"実績では、同じ診療日数まで累計した1日あたり売上は前年を"
+                 f"{pct(f['obs_rate'])}{_updown(cap['obs_diff'])}水準です。")
     if len(ups) >= 2 and not downs:
         if down_month:
             s.append(f"月末見込みでは、{_join(ups)}はいずれも前年を上回る見込みです。"
@@ -970,18 +1380,16 @@ def _conclusion(f, comps, cause, cap):
             tail += f"うち自費が{yen_sman(f['prev_forecast_selfpay_diff'])}です。"
         s.append(tail)
 
-    return s[:4]
+    return s[:5]
 
 
 def _focus(f, actions):
     """月末までにまだ変えられるものだけを論点にする。"""
     left = cnt(f["days_remaining"], "日") if f["days_remaining"] is not None else "残り日数不明"
-    inmonth = [a for a in actions if a["tier"] <= T_INMONTH]
+    inmonth = [a for a in actions if a.get("inmonth", True)]
     if not inmonth:
-        if actions:
-            return (f"今月の残り{left}で動かせる幅は限られています。"
-                    f"最大の論点は「{actions[0]['headline']}」で、これは来月以降の計画に効きます。")
-        return "月末までに判断すべき論点は、現在のデータからは特定できていません。"
+        return (f"今月の残り{left}で動かせる論点は、現在のデータからは見つかっていません。"
+                "来月以降の構造課題を参照してください。")
     txt = f"月末まで残り{left}。今から変えられる最大の論点は「{inmonth[0]['headline']}」です。"
     if len(inmonth) > 1:
         txt += f"次に「{inmonth[1]['headline']}」です。"
@@ -1021,15 +1429,18 @@ def _data_notes(f):
 # ======================================================================
 # 入口
 # ======================================================================
-def build_management_report(roll, prev_year_row=None, prev_forecast_row=None):
-    f = _facts(roll, prev_year_row, prev_forecast_row)
+def build_management_report(roll, prev_year_row=None, prev_forecast_row=None,
+                            history_rows=None):
+    f = _facts(roll, prev_year_row, prev_forecast_row, history_rows)
     comps = _components(f)
     cause = _yoy_cause(f, comps)
     cap = _capacity(f)
     stru = _structure(f, cap)
     spv = _selfpay_view(f, comps)
-    actions = _actions(f, comps, cause, cap, stru, spv)
+    actions, later = _actions(f, comps, cause, cap, stru, spv)
     return {
+        "next_month_actions": later,
+        "trend": _productivity_trend(f),
         "facts": f,
         "components": comps,
         "conclusion": _conclusion(f, comps, cause, cap),
