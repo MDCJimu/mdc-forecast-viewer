@@ -1418,11 +1418,9 @@ def render(month, snap, nav=None):
     biz_days = p_biz.get("clinic_days")
     biz_diff = fnum(p_biz.get("diff_vs_current"))
     biz_rate = p_biz.get("rate")
-    beats = bool(roll.get("landing_beats_prevyear"))
     cons = fnum(roll.get("conservative_forecast"))
     td_pct = f"（{yoy_td_rate:+.1f}%）" if isinstance(yoy_td_rate, (int, float)) else ""
     biz_pct = f"（{biz_rate:+.1f}%）" if isinstance(biz_rate, (int, float)) else ""
-    beats_word = "前年を上回る見込み" if beats else "前年に届かない見込み"
     r80 = f"{manv(lo)}〜{manv(hi)}" if (lo is not None and hi is not None) else "取得不可"
     yoy_pct = f"（{yoy_rate:+.1f}%）" if isinstance(yoy_rate, (int, float)) else ""
     # 縮退表示のときに出す注記。経営分析（mgmt_report）が読めないと、
@@ -1451,7 +1449,6 @@ def render(month, snap, nav=None):
     badge = smry.get("badge") or {}
     tgt = (mgmt or {}).get("target") or {}
     # バッジは _summary が判定する（前年総額と日数補正水準を分けて見る）。
-    # mgmt が読めないときだけ従来の landing_beats_prevyear にフォールバックする。
     if badge:
         b_text, b_tone = badge["text"], badge["tone"]
         facts_html = "".join(
@@ -1665,7 +1662,8 @@ def render(month, snap, nav=None):
         f"<div class='py'>増減率 {td_pct or '—'}<br>外来保険+自費+物販ベース</div></div>"
         f"<div class='mfc-card tp-o'><div class='lb'>④ 月末着地見込み{lab('mdl')}</div>"
         f"<div class='big'>{manv(cur)}<span class='u'>万円</span></div>"
-        f"<div class='py'>保守 {man(cons)}／前年月末 {man(py)}<br>{beats_word}</div></div>"
+        f"<div class='py'>保守 {man(cons)}／前年月末 {man(py)}<br>"
+        f"前年総額比 {sman(yoy)}{yoy_pct}</div></div>"
         "</div>", unsafe_allow_html=True)
 
     _render_forecast_composition(roll)
