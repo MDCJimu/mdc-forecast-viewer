@@ -11,6 +11,7 @@
   5. 同じ画面に矛盾した数値・文章が出ないこと
 """
 import io
+import os
 import unittest
 
 import mgmt_report as MR
@@ -120,8 +121,13 @@ def make_roll(insurance, selfpay, product,
     }
 
 
-def hist_rows(selfpay=None, per_day_trend=None):
-    """直近12か月の月次実績。年月・区分・診療日数だけを持つ最小形。"""
+def hist_rows(selfpay=None, per_day_trend=None, out_days=None,
+              op_totals=None, with_outpatient_days=True):
+    """直近12か月の月次実績。年月・区分・診療日数・外来診療日数を持つ最小形。
+
+    out_days を渡すと外来診療日数だけを差し替えられる（外来診療日あたり売上の
+    推移を作るのに使う）。with_outpatient_days=False は列が入る前の履歴の再現。
+    """
     base = [
         ("2025-08", 21805410, 13393890, 8131750, 279770, 23),
         ("2025-09", 19752670, 13693510, 5869820, 189340, 24),
@@ -142,15 +148,25 @@ def hist_rows(selfpay=None, per_day_trend=None):
             jih = selfpay[i]
         if per_day_trend is not None:
             tot, days = per_day_trend[i]
-        rows.append({"年月": ym, "月間総売上": tot, "保険診療売上": hok,
-                     "自費診療売上": jih, "物販売上": bup, "診療日数": days,
-                     "外来保険売上": hok - 1_400_000 - 600_000,
-                     "訪問保険売上": 1_400_000, "介護売上": 600_000})
+        gairai = hok - 1_400_000 - 600_000
+        if op_totals is not None:
+            # 外来3区分（外来保険+自費+物販）の合計を狙った値に合わせる。
+            gairai = op_totals[i] - jih - bup
+            hok = gairai + 1_400_000 + 600_000
+        row = {"年月": ym, "月間総売上": tot, "保険診療売上": hok,
+               "自費診療売上": jih, "物販売上": bup, "診療日数": days,
+               "外来保険売上": gairai,
+               "訪問保険売上": 1_400_000, "介護売上": 600_000}
+        if with_outpatient_days:
+            # 既定は「訪問・介護だけの日が無い月」＝診療日数と同じ。
+            row[MR.HIST_OUTPATIENT_DAYS_COL] = (out_days[i] if out_days else days)
+        rows.append(row)
     return rows
 
 
 PREV_ROW = {
-    "年月": "2025-08", "診療日数": "23", "月間総売上": "21805410",
+    "年月": "2025-08", "診療日数": "23", "外来診療日数": "22",
+    "月間総売上": "21805410",
     "保険診療売上": "13393890", "自費診療売上": "8131750", "物販売上": "279770",
     "外来保険売上": "11057460", "訪問保険売上": "1359740", "介護売上": "976690",
     "総患者数": "891", "総来院回数": "1439", "初診件数": "37",
@@ -699,6 +715,9 @@ class TestConsistency(unittest.TestCase):
                     or "前年の同時期との比較" in sent
                     or "前年側の日数は" in sent
                     or "前年も同じ外来診療日数" in sent
+                    or "ここまでの日数はすべて外来診療日数" in sent
+                    or "月次実績にはもう一つ" in sent
+                    or "外来診療日数そのものは" in sent
                     or "区分別の1日あたりは" in sent
                     or "前年を同じ診療日数まで累計した" in sent):
                 continue          # 実測を述べた文はそのまま断定してよい
@@ -801,9 +820,12 @@ class TestObservedFirst(unittest.TestCase):
         # 日数が一致した実績行は前年と比較する
         self.assertIn("同じ外来診療日数",
                       kinds["外来診療日あたり売上（実績・外来保険＋自費＋物販）"])
-        # 月末見込みは前年側が無いので比較しない
-        self.assertIn("比較しない",
-                      kinds["外来診療日あたり売上（月末見込み・外来保険＋自費＋物販）"])
+        # 月末見込みも、前年側の外来診療日数がそろったので比較する。
+        # 当年が見込み・前年が確定実績であることは kind に書いてある。
+        k = kinds["外来診療日あたり売上（月末見込み・外来保険＋自費＋物販）"]
+        self.assertIn("月末見込み", k)
+        self.assertIn("前年は確定実績", k)
+        self.assertNotIn("比較しない", k)
 
     def test_structure_never_calls_forecast_observed(self):
         """予測値を「実際には」と書かない（A-3）。"""
@@ -820,56 +842,114 @@ class TestObservedFirst(unittest.TestCase):
 
 # ======================================================================
 class TestProductivityTrend(unittest.TestCase):
-    """A-6: 1診療日あたり生産性の連続トレンド。"""
+    """A-6: 外来診療日あたり売上の推移。分子は外来3区分、分母は外来診療日数。
 
-    DOWN = [(21805410, 23), (19752670, 24), (18072000, 26), (20380000, 23),
-            (19320000, 24), (20460000, 23), (20560000, 22), (23230000, 25),
-            (22700000, 26), (19080000, 24), (20221040, 26), (20303270, 27)]
+    以前は「売上発生日あたり総売上」で判定しており、木曜休診で訪問・介護だけ
+    売上が立つ日が分母に入ったせいで「6か月連続低下」と出ていた。月次実績に
+    「外来診療日数」の列が入ったので、全期間を同じ分母で並べて判定する。
+    """
 
-    def test_trend_is_suppressed_while_thursday_is_closed(self):
-        """木曜休診中は分母の中身が変わるため、トレンド判定を出さない。"""
+    # 2025-08〜2026-07 の実データ（外来3区分の合計, 外来診療日数）。
+    # 外来診療日あたりは 88.5 / 74.1 / 60.0 / 77.0 / 69.9 / 78.8 /
+    #                    83.9 / 84.2 / 81.8 / 73.0 / 69.7 / 86.2 万円。
+    REAL_OP = [19468980, 17052060, 15610779, 17706461, 16781039, 18132176,
+               18458460, 21046870, 20444300, 16782690, 18122820, 18109870]
+    REAL_DAYS = [22, 23, 26, 23, 24, 23, 22, 25, 25, 23, 26, 21]
+
+    def _real(self, **kw):
+        return build(make_roll(15_113_808, 6_010_211, 316_528,
+                               13_393_890, 8_131_750, 279_770, **kw),
+                     hist=hist_rows(op_totals=self.REAL_OP,
+                                    out_days=self.REAL_DAYS))
+
+    def test_real_series_is_decline_then_rebound(self):
+        """3月から6月まで低下し、7月に反発、という形で出ること。"""
+        tr = self._real(thursday_closed=True)["trend"]
+        self.assertIsNotNone(tr)
+        self.assertFalse(tr.get("suppressed"))
+        self.assertEqual(tr["kind"], "turn")
+        self.assertEqual(tr["months"], 3)          # 03→04, 04→05, 05→06
+        self.assertEqual(tr["direction"], -1)
+        self.assertIn("03月", tr["text"])
+        self.assertIn("06月", tr["text"])
+        self.assertIn("反発", tr["text"])
+        self.assertIn("84.2万円", tr["text"])
+        self.assertIn("69.7万円", tr["text"])
+        self.assertIn("86.2万円", tr["text"])
+
+    def test_real_series_never_says_six_months_of_decline(self):
+        """撤回済みの『6か月連続低下』が新しい系列から出ないこと。"""
+        rep = self._real(thursday_closed=True)
+        for t in (rep["trend"]["text"], all_text(rep)):
+            for n in range(4, 13):
+                self.assertNotIn(f"{n}か月続けて低下", t)
+                self.assertNotIn(f"{n}か月続けて前月を下回り", t)
+
+    def test_rebound_is_not_reported_as_plain_improvement(self):
+        """『改善した』とだけ言わず、低下局面と水準まで出すこと。"""
+        tr = self._real(thursday_closed=True)["trend"]
+        self.assertIn("直前3か月平均", tr["text"])
+        self.assertIn("直前6か月平均", tr["text"])
+        self.assertIn("直近12か月の分布では", tr["text"])
+        self.assertIn("外来診療日数は", tr["text"])
+        self.assertIsNotNone(tr["prev3"])
+        self.assertIsNotNone(tr["prev6"])
+        self.assertEqual(tr["level"], "上位25%")
+
+    def test_thursday_closure_no_longer_suppresses(self):
+        """分母がそろったので、木曜休診中でも判定を出す。"""
+        tr = self._real(thursday_closed=True)["trend"]
+        self.assertFalse(tr.get("suppressed"))
+        self.assertEqual(tr["basis"], MR.BASIS_OUTPATIENT)
+
+    def test_denominator_is_outpatient_days_not_clinic_days(self):
+        """診療日数ではなく外来診療日数で割っていること。"""
+        rep = self._real(thursday_closed=True)
+        series = rep["facts"]["hist"]["op_per_day"]
+        self.assertEqual([x["days"] for x in series], self.REAL_DAYS)
+        for x, op, d in zip(series, self.REAL_OP, self.REAL_DAYS):
+            self.assertAlmostEqual(x["per_day"], op / d, places=6)
+            self.assertEqual(x["basis"], MR.BASIS_OUTPATIENT)
+
+    def test_continuous_decline_is_still_reported(self):
+        """一方向に下がり続ける月は、これまでどおり連続低下として出す。"""
+        op = [20_000_000 - i * 300_000 for i in range(12)]
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
-                              13_393_890, 8_131_750, 279_770,
-                              thursday_closed=True),
-                    hist=hist_rows(per_day_trend=self.DOWN))
+                              13_393_890, 8_131_750, 279_770),
+                    hist=hist_rows(op_totals=op, out_days=[23] * 12))
+        tr = rep["trend"]
+        self.assertEqual(tr["kind"], "run")
+        self.assertEqual(tr["direction"], -1)
+        self.assertIn(f"{tr['months']}か月続けて低下", tr["text"])
+        self.assertTrue(any("外来診療日あたり売上" in a["headline"]
+                            for a in rep["next_month_actions"]))
+
+    def test_suppressed_when_column_is_missing(self):
+        """外来診療日数が入っていない履歴では、判定せず理由を返す。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770),
+                    hist=hist_rows(with_outpatient_days=False))
         tr = rep["trend"]
         self.assertTrue(tr["suppressed"])
         self.assertIn("判定を出していません", tr["text"])
-        self.assertIn("訪問・介護だけ売上が立つ木曜", tr["text"])
-        # 抑止中は打ち手も作らない
-        self.assertFalse(any("生産性" in a["headline"]
+        self.assertIn("外来診療日数が入っていない月", tr["text"])
+        self.assertFalse(any("外来診療日あたり売上" in a["headline"]
                              for a in rep["next_month_actions"]))
-        # 本番に出ていた文言が復活していないこと
-        self.assertNotIn("6か月続けて低下", all_text(rep))
-        self.assertNotIn("6か月続けて低下", tr["text"])
 
-    def test_detects_decline_when_basis_is_stable(self):
-        """木曜休診が無い月なら、同じ数え方のままなので判定を出す。"""
+    def test_flat_series_makes_no_trend_claim(self):
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
-                              13_393_890, 8_131_750, 279_770,
-                              thursday_closed=False),
-                    hist=hist_rows(per_day_trend=self.DOWN))
+                              13_393_890, 8_131_750, 279_770),
+                    hist=hist_rows(op_totals=[18_000_000] * 12,
+                                   out_days=[23] * 12))
         tr = rep["trend"]
-        self.assertIsNotNone(tr)
-        self.assertFalse(tr.get("suppressed"))
-        self.assertEqual(tr["direction"], -1)
-        self.assertIn("売上発生日あたりの総売上", tr["text"])
-        self.assertIn(f"{tr['months']}か月続けて低下", tr["text"])
-        self.assertTrue(any("生産性" in a["headline"]
-                            for a in rep["next_month_actions"]))
-
-    def test_no_trend_when_not_monotonic(self):
-        flat = [(20000000, 25)] * 12
-        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
-                              13_393_890, 8_131_750, 279_770,
-                              thursday_closed=False),
-                    hist=hist_rows(per_day_trend=flat))
-        self.assertIsNone(rep["trend"])
+        self.assertEqual(tr["kind"], "level")
+        self.assertIn("一方向に続けて動いてはいません", tr["text"])
+        self.assertFalse(any("外来診療日あたり売上" in a["headline"]
+                             for a in rep["next_month_actions"]))
 
     def test_no_trend_without_history(self):
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
-                              13_393_890, 8_131_750, 279_770,
-                              thursday_closed=False), hist=[])
+                              13_393_890, 8_131_750, 279_770), hist=[])
         self.assertIsNone(rep["trend"])
 
 
@@ -927,8 +1007,10 @@ class TestPerDayDefinitions(unittest.TestCase):
         prow = PREV_ROW
         want = float(prow["月間総売上"]) / float(prow["診療日数"])
         self.assertAlmostEqual(f["rev_day_per_day_prev"], want, places=6)
-        self.assertIsNone(f["per_day_basis_prev"])
+        # 前年側の外来系per-dayは外来診療日数を分母にする（診療日数は使わない）。
+        self.assertEqual(f["per_day_basis_prev"], MR.BASIS_OUTPATIENT)
         self.assertEqual(MR.HIST_DAYS_BASIS, MR.BASIS_REVENUE_DAY)
+        self.assertEqual(MR.HIST_OP_DAYS_BASIS, MR.BASIS_OUTPATIENT)
 
     def test_basis_gap_is_stated_when_thursday_is_closed(self):
         """分母の数え方が違うことを黙って比べない。"""
@@ -937,6 +1019,8 @@ class TestPerDayDefinitions(unittest.TestCase):
         t = rep["capacity"]["text"]
         self.assertIn("売上が発生した日", t)
         self.assertIn("月の診療日数そのものの前年差は出していません", t)
+        # 外来系の日数は外来診療日数で語る（診療日数を分母にしない）。
+        self.assertIn("ここまでの日数はすべて外来診療日数", t)
 
     def test_no_basis_note_when_thursday_is_open(self):
         rep = self._rep(thursday_closed=False)
@@ -991,18 +1075,29 @@ class TestPerDayDefinitions(unittest.TestCase):
         t = rep["capacity"]["text"]
         self.assertIn("外来診療を行った12日で見ると、1日あたり91万円です", t)
         self.assertIn("外来診療21日で1日あたり92万円", t)
-        # 旧混合分母の値（84万円・88万円）を外来生産性として出さない
-        self.assertNotIn("1日あたり84万円", t)
-        self.assertNotIn("1日あたり88万円", t)
+        # 旧混合分母（外来3区分 ÷ 売上のあった日を含む日数）で作った値を、
+        # 今月の外来生産性として出さない。当年側の per-day は必ず外来診療日数割り。
+        for k in ("per_day_now", "op_per_day_month"):
+            self.assertAlmostEqual(f[k], f["op_now"] / 21, places=6)
+        self.assertAlmostEqual(f["per_day_done"], f["actual_to_date"] / 12, places=6)
+        self.assertNotIn("外来診療21日で1日あたり84万円", t)
+        self.assertNotIn("外来診療21日で1日あたり88万円", t)
         # 日数が一致しているので前年比較を出す（同じ外来診療日数どうし）
         row = next(r for r in rep["capacity"]["rows"]
                    if r["name"].startswith("外来診療日あたり売上（実績"))
         self.assertIn("同じ外来診療日数", row["kind"])
         self.assertNotEqual(row["prev"], "—")
-        # 月末見込みは前年側が無いので比較しない
+        # 月末見込みの前年側は、月次実績の外来診療日数から作る（診療日数は使わない）
         m = next(r for r in rep["capacity"]["rows"]
                  if r["name"].startswith("外来診療日あたり売上（月末見込み"))
-        self.assertEqual(m["prev"], "—")
+        self.assertNotEqual(m["prev"], "—")
+        pv = float(PREV_ROW["外来保険売上"]) + float(PREV_ROW["自費診療売上"]) \
+            + float(PREV_ROW["物販売上"])
+        want = pv / float(PREV_ROW["外来診療日数"])
+        self.assertAlmostEqual(f["per_day_prev"], want, places=6)
+        # 診療日数（23日）で割った値にはなっていない
+        self.assertNotAlmostEqual(f["per_day_prev"],
+                                  pv / float(PREV_ROW["診療日数"]), places=0)
 
     def test_visit_care_never_enters_outpatient_numerator(self):
         """訪問介護売上を外来診療日あたり売上の分子に入れない。"""
@@ -1034,6 +1129,109 @@ class TestPerDayDefinitions(unittest.TestCase):
         text = all_text(rep) + (rep["trend"] or {}).get("text", "")
         for bad in ("6か月続けて低下", "6か月続けて上昇", "か月続けて低下しています（02月"):
             self.assertNotIn(bad, text)
+
+
+# ======================================================================
+class TestPublishedOutpatientDays(unittest.TestCase):
+    """公開している monthly_actuals.csv の外来診療日数を固定する。
+
+    外来保険+自費+物販 のいずれかが計上された日数。2019-11〜2026-07 の全81か月で
+    検証済みで、診療日数との差が出る17か月・のべ23日はすべて説明がついている
+    （訪問介護のみ7日 ＋ 売上ゼロ16日）。既存の診療日数は意味も値も変えない。
+    """
+
+    COL = "外来診療日数"
+
+    @classmethod
+    def setUpClass(cls):
+        import csv
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "data", "history", "monthly_actuals.csv")
+        if not os.path.isfile(path):
+            raise unittest.SkipTest("monthly_actuals.csv が無い")
+        with io.open(path, encoding="utf-8-sig", newline="") as fh:
+            cls.rows = [r for r in csv.DictReader(fh) if r.get("年月")]
+        cls.by = {r["年月"]: r for r in cls.rows}
+
+    def test_column_exists_for_every_month(self):
+        self.assertEqual(len(self.rows), 81)
+        missing = [r["年月"] for r in self.rows if not str(r.get(self.COL, "")).strip()]
+        self.assertEqual(missing, [], f"外来診療日数が空の月: {missing}")
+
+    def test_no_zero_or_negative_month(self):
+        bad = [(r["年月"], r[self.COL]) for r in self.rows
+               if float(r[self.COL]) <= 0]
+        self.assertEqual(bad, [], f"0以下の月: {bad}")
+
+    def test_never_exceeds_clinic_days(self):
+        """外来診療日は診療日の部分集合。上回る月があれば数え方が壊れている。"""
+        bad = [(r["年月"], r["診療日数"], r[self.COL]) for r in self.rows
+               if float(r[self.COL]) > float(r["診療日数"])]
+        self.assertEqual(bad, [])
+
+    def test_2026_07_is_fixed(self):
+        r = self.by["2026-07"]
+        self.assertEqual(int(float(r["診療日数"])), 27)     # 既存列は変えない
+        self.assertEqual(int(float(r[self.COL])), 21)       # 外来診療 21日
+        # 内訳: 外来診療21 + 訪問介護のみ4 + 売上ゼロ2 = 27
+        self.assertEqual(21 + 4 + 2, int(float(r["診療日数"])))
+
+    def test_months_that_differ_from_clinic_days(self):
+        """差が出る月と差の大きさを固定する（調査で1日ずつ突合済み）。"""
+        want = {"2019-11": 1, "2019-12": 1, "2020-05": 1, "2020-06": 1,
+                "2020-08": 1, "2020-11": 1, "2021-08": 2, "2022-03": 1,
+                "2023-10": 1, "2024-05": 1, "2024-06": 1, "2024-08": 1,
+                "2025-08": 1, "2025-09": 1, "2026-04": 1, "2026-05": 1,
+                "2026-07": 6}
+        got = {r["年月"]: int(float(r["診療日数"])) - int(float(r[self.COL]))
+               for r in self.rows
+               if int(float(r["診療日数"])) != int(float(r[self.COL]))}
+        self.assertEqual(got, want)
+
+    def test_recent_outpatient_per_day_series(self):
+        """2026-02〜07 の外来診療日あたり売上（万円・小数1桁）を固定する。"""
+        want = {"2026-02": 83.9, "2026-03": 84.2, "2026-04": 81.8,
+                "2026-05": 73.0, "2026-06": 69.7, "2026-07": 86.2}
+        for ym, v in want.items():
+            r = self.by[ym]
+            op = sum(float(r[c]) for c in
+                     ("外来保険売上", "自費診療売上", "物販売上"))
+            self.assertAlmostEqual(op / float(r[self.COL]) / 10000, v, delta=0.05,
+                                   msg=ym)
+
+    def test_series_is_decline_then_rebound_not_six_month_decline(self):
+        """撤回済みの『6か月連続低下』にならないこと。06月→07月は反発。"""
+        ms = ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"]
+        vals = []
+        for ym in ms:
+            r = self.by[ym]
+            op = sum(float(r[c]) for c in
+                     ("外来保険売上", "自費診療売上", "物販売上"))
+            vals.append(op / float(r[self.COL]))
+        downs = sum(1 for i in range(1, len(vals)) if vals[i] < vals[i - 1])
+        self.assertLess(downs, 5, f"連続低下として読める並び: {vals}")
+        self.assertGreater(vals[-1], vals[-2], "07月は06月を上回る（反発）")
+        self.assertAlmostEqual(vals[-2] / 10000, 69.7, delta=0.05)
+        self.assertAlmostEqual(vals[-1] / 10000, 86.2, delta=0.05)
+
+    def test_report_uses_outpatient_days_for_past_months(self):
+        """実データを渡したとき、過去月のper-dayが外来診療日数割りであること。"""
+        hist = [dict(r) for r in self.rows]
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770,
+                              thursday_closed=True),
+                    prev_row=self.by["2025-08"], hist=hist)
+        series = rep["facts"]["hist"]["op_per_day"]
+        self.assertEqual(len(series), 12)
+        for x in series:
+            r = self.by[x["ym"]]
+            self.assertEqual(x["days"], float(r[self.COL]))
+            if r["診療日数"] != r[self.COL]:
+                # 差がある月は、診療日数で割っていないことがここで分かる
+                self.assertNotEqual(x["days"], float(r["診療日数"]))
+            op = sum(float(r[c]) for c in
+                     ("外来保険売上", "自費診療売上", "物販売上"))
+            self.assertAlmostEqual(x["per_day"], op / float(r[self.COL]), places=6)
 
 
 # ======================================================================

@@ -57,8 +57,20 @@ BASIS_MIXED_DAYS = "売上のあった日＋残りの外来診療予定日"
 # cloud_deploy が持っている monthly_actuals.csv の「診療日数」は
 # 「レセコン明細がある日 ＋ 介護のみ計上がある日」＝ 売上発生日数 であり、
 # 外来診療日数ではない（scripts/monthly_actuals_source.py の定義）。
-# 過去月の外来診療日数を出せる列は cloud_deploy 側に存在しない。
 HIST_DAYS_BASIS = BASIS_REVENUE_DAY
+
+# 外来診療日数の列。外来保険+自費+物販 のいずれかが計上された日数で、
+# 訪問・介護しか売上が無い日は入らない。外来系の「1日あたり」の分母はこれだけを使い、
+# 「診療日数」は総売上ベースの指標にしか使わない。
+HIST_OUTPATIENT_DAYS_COL = "外来診療日数"
+HIST_OP_DAYS_BASIS = BASIS_OUTPATIENT
+
+# 外来診療日あたりで見る区分。訪問保険・介護は分子に入れない（分母と土俵が違う）。
+HIST_OP_SEGMENTS = {
+    "outpatient": "外来保険売上",
+    "selfpay": "自費診療売上",
+    "product": "物販売上",
+}
 
 # ---- 判定のしきい値（金額はすべて円）--------------------------------------
 MATERIAL_YEN = 300_000      # これ未満の差は「ほぼ前年並み」として扱う
@@ -259,8 +271,33 @@ def _history(target_ym, history_rows):
                         "basis": HIST_DAYS_BASIS,
                         "per_day": (tot / days) if (tot and days) else None})
     stats["per_day"] = _stats([x["per_day"] for x in per_day])
+
+    # 外来診療日あたり売上の推移。分子は外来3区分、分母は外来診療日数。
+    # 木曜休診で訪問・介護だけ売上が立つ日が増えても分母に入らないため、
+    # 期間をまたいで生産性を並べられるのはこちらだけ。区分別も同じ分母で割る。
+    op_per_day = []
+    for r in rows:
+        od = f_(r.get(HIST_OUTPATIENT_DAYS_COL))
+        op = _sum(f_(r.get("外来保険売上")), f_(r.get("自費診療売上")),
+                  f_(r.get("物販売上")))
+        op_per_day.append({
+            "ym": r["年月"], "op": op, "days": od, "basis": HIST_OP_DAYS_BASIS,
+            "per_day": _div(op, od),
+            "segments": {k: _div(f_(r.get(col)), od)
+                         for k, col in HIST_OP_SEGMENTS.items()},
+        })
+    op_ok = [x for x in op_per_day if x["per_day"] is not None]
+    stats["op_per_day"] = _stats([x["per_day"] for x in op_ok])
+    for k in HIST_OP_SEGMENTS:
+        stats[f"op_{k}_per_day"] = _stats([x["segments"][k] for x in op_ok])
+
     return {"available": True, "months": [r["年月"] for r in rows],
             "stats": stats, "per_day": per_day, "days_basis": HIST_DAYS_BASIS,
+            "op_per_day": op_per_day, "op_days_basis": HIST_OP_DAYS_BASIS,
+            # 12か月すべてに外来診療日数が入っているときだけ、外来診療日ベースの
+            # 比較・トレンドを出す。1か月でも欠けた系列で連続性を語らない。
+            "op_available": bool(op_ok) and len(op_ok) == len(rows),
+            "op_months": [x["ym"] for x in op_ok],
             "range": (rows[0]["年月"], rows[-1]["年月"])}
 
 
@@ -302,8 +339,11 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
     d_out_month = f_(roll.get("outpatient_month_days_count"))
     days_elapsed = _sum(d_act, d_unrec)
     # 履歴の「診療日数」は売上発生日数（訪問・介護だけの日を含む）。
-    # 外来診療日数ではないので、外来3区分の分子と割り算するときは基準が食い違う。
+    # 外来3区分の分子と割り算すると基準が食い違うので、総売上ベースにだけ使う。
     days_prev = pyv("診療日数")
+    # 前年同月の外来診療日数。当年の外来診療日数と同じ数え方
+    # （外来保険+自費+物販が計上された日）なので、外来系はこちらを分母にする。
+    days_prev_out = pyv(HIST_OUTPATIENT_DAYS_COL)
 
     outp = f_(roll.get("outpatient_insurance_forecast"))
     selfpay = f_(roll.get("selfpay_forecast"))
@@ -400,22 +440,32 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
         "days_month_outpatient": d_out_month,
         "has_outpatient_days": (d_out_act is not None and d_out_month is not None),
         "days_prev": days_prev,
-        # 今月の日数は外来診療の予定日、前年の日数は売上発生日で、数え方が違う。
-        # 引き算した値は意味を持たないので作らない。monthly_actuals.csv に
-        # 外来診療日数の列が入り、同じ定義で数えられるようになったら復活させる。
+        "days_prev_outpatient": days_prev_out,
+        # 今月の日数は売上のあった日＋残りの外来診療予定日、前年の日数は売上発生日で、
+        # 数え方が違う。引き算した値は意味を持たないので作らない。
         "days_diff": None,
+        # 外来診療日数どうしの差。当年は「外来診療を終えた日＋未反映＋これからの
+        # 外来診療予定日」の見込み、前年は確定実績なので、見込みと実績の差である
+        # ことを添えて使う（同じ数え方であることは満たしている）。
+        "days_outpatient_diff": (d_out_month - days_prev_out
+                                 if (d_out_month is not None
+                                     and days_prev_out is not None) else None),
 
         "op_now": op_now,
         "op_prev": op_prev,
         # 外来診療日あたり売上。分子は外来3区分、分母は外来診療日数。
-        # 前年は同じ数え方の日数が monthly_actuals.csv に無いため前年側を作らない。
+        # 当年・前年とも同じ数え方の日数で割る。
         # 混合分母（外来3区分 ÷ 売上発生日を含む日数）はどこにも持たない。
         "per_day_now": _div(op_now, d_out_month),
-        "per_day_prev": None,
+        "per_day_prev": _div(op_prev, days_prev_out),
         "per_day_basis_now": BASIS_OUTPATIENT,
-        "per_day_basis_prev": None,
+        "per_day_basis_prev": BASIS_OUTPATIENT if days_prev_out else None,
         "ins_per_day_now": _div(outp, d_out_month),
-        "ins_per_day_prev": None,
+        "ins_per_day_prev": _div(pyv("外来保険売上"), days_prev_out),
+        "selfpay_per_day_now": _div(selfpay, d_out_month),
+        "selfpay_per_day_prev": _div(pyv("自費診療売上"), days_prev_out),
+        "product_per_day_now": _div(product, d_out_month),
+        "product_per_day_prev": _div(pyv("物販売上"), days_prev_out),
         # 売上発生日あたり総売上（分子は全区分・前年のみ算出可能）
         "rev_day_per_day_prev": _div(pyv("月間総売上"), days_prev),
         "per_visit_now": _div(op_now, visit_now),
@@ -806,11 +856,23 @@ def _capacity(f):
                               if _m else
                               f"実績／外来診療{cnt(f['days_actual_outpatient'], '日')}"
                               "・前年の外来診療日数が無いため比較しない")})
-        rows.append({"name": "外来診療日あたり売上（月末見込み・外来保険＋自費＋物販）",
-                     "now": yen_man(f["op_per_day_month"]), "prev": "—", "diff": "—",
-                     "diff_raw": 0, "rate": None,
-                     "kind": f"月末見込み／外来診療{cnt(f['days_month_outpatient'], '日')}"
-                             "・前年は同じ数え方の日数が無いため比較しない"})
+        # 月末見込みの前年比較。当年は見込み・前年は確定実績だが、分母はどちらも
+        # 外来診療日数（外来保険+自費+物販が計上された日）で数え方がそろっている。
+        _fk = (f"月末見込み／外来診療{cnt(f['days_month_outpatient'], '日')}"
+               f"・前年は確定実績（外来診療{cnt(f['days_prev_outpatient'], '日')}）"
+               if f["per_day_prev"] else
+               f"月末見込み／外来診療{cnt(f['days_month_outpatient'], '日')}"
+               "・前年の外来診療日数が月次実績に無いため比較しない")
+
+        def _fcrow(name, now, prev):
+            rows.append({"name": name, "now": yen_man(now),
+                         "prev": yen_man(prev) if prev else "—",
+                         "diff": yen_sman(now - prev) if prev else "—",
+                         "diff_raw": (now - prev) if prev else 0,
+                         "rate": rate(now, prev) if prev else None, "kind": _fk})
+
+        _fcrow("外来診療日あたり売上（月末見込み・外来保険＋自費＋物販）",
+               f["op_per_day_month"], f["per_day_prev"])
     d_obs = None
     if f["has_outpatient_days"]:
         for key, lab in (("outpatient", "うち外来保険（実績・外来診療日あたり）"),
@@ -839,12 +901,22 @@ def _capacity(f):
                      "kind": "この基準日のスナップショットに外来診療日数が入っていないため"})
     d_pd = None
     d_ipd = None
-    if f["has_outpatient_days"] and f["ins_per_day_now"] is not None:
-        rows.append({"name": "うち外来保険（月末見込み・外来診療日あたり）",
-                     "now": yen_man(f["ins_per_day_now"]), "prev": "—", "diff": "—",
-                     "diff_raw": 0, "rate": None,
-                     "kind": f"月末見込み／外来診療{cnt(f['days_month_outpatient'], '日')}"
-                             "・前年は同じ数え方の日数が無いため比較しない"})
+    if f["has_outpatient_days"]:
+        for key, lab in (("ins", "うち外来保険（月末見込み・外来診療日あたり）"),
+                         ("selfpay", "うち自費（月末見込み・外来診療日あたり）"),
+                         ("product", "うち物販（月末見込み・外来診療日あたり）")):
+            if f.get(f"{key}_per_day_now") is not None:
+                _fcrow(lab, f[f"{key}_per_day_now"], f.get(f"{key}_per_day_prev"))
+        # 分母そのものの前年差。1日あたりが同じでも日数が減れば月の売上は減る。
+        if f["days_outpatient_diff"] is not None:
+            rows.append({"name": "外来診療日数",
+                         "now": cnt(f["days_month_outpatient"], "日"),
+                         "prev": cnt(f["days_prev_outpatient"], "日"),
+                         "diff": scnt(f["days_outpatient_diff"], "日"),
+                         "diff_raw": f["days_outpatient_diff"],
+                         "rate": rate(f["days_month_outpatient"],
+                                      f["days_prev_outpatient"]),
+                         "kind": "月末見込み／前年は月末実績"})
     d_vis = add("来院回数", f["visit"], f["visit_prev"],
                 lambda v: cnt(v, "回"), lambda v: scnt(v, "回"))
     d_vpd = None
@@ -888,8 +960,28 @@ def _capacity(f):
                      "（外来保険＋自費＋物販。訪問・介護だけ売上が立った日は数えていません）。"
                      + (f"内訳は{'、'.join(seg)}です。" if seg else "")
                      + f"月末見込みでは外来診療{cnt(f['days_month_outpatient'], '日')}で"
-                     f"1日あたり{yen_man(f['op_per_day_month'])}になります"
-                     "（月末見込みは、前年の外来診療日数が月次実績に無いため前年比較を出しません）。")
+                     f"1日あたり{yen_man(f['op_per_day_month'])}になります。")
+        # 月末見込みの前年比較。分母は当年・前年とも外来診療日数でそろっている。
+        # 当年側は「外来診療を終えた日＋未反映＋これからの外来診療予定日」の見込み、
+        # 前年側は確定実績なので、そこは言葉で区別する。
+        if f["per_day_prev"] is not None:
+            dd = f["days_outpatient_diff"]
+            pseg = []
+            for key, lab in (("ins", "外来保険"), ("selfpay", "自費"), ("product", "物販")):
+                a, b = f.get(f"{key}_per_day_now"), f.get(f"{key}_per_day_prev")
+                if a is not None and b is not None:
+                    pseg.append(f"{lab}{pct(rate(a, b))}")
+            parts.append(
+                f"前年同月は外来診療{cnt(f['days_prev_outpatient'], '日')}で"
+                f"1日あたり{yen_man(f['per_day_prev'])}でした。"
+                f"今月の見込みはこれを{yen_man(abs(f['per_day_now'] - f['per_day_prev']))}"
+                f"（{pct(rate(f['per_day_now'], f['per_day_prev']))}）"
+                f"{_updown(f['per_day_now'] - f['per_day_prev'])}水準で、"
+                "当年は月末までの見込み、前年は確定実績どうしの比較です。"
+                + (f"区分別の1日あたりは{'、'.join(pseg)}です。" if pseg else "")
+                + (f"外来診療日数そのものは、前年{cnt(f['days_prev_outpatient'], '日')}に対し"
+                   f"今月見込み{cnt(f['days_month_outpatient'], '日')}で{scnt(dd, '日')}です。"
+                   if dd else "外来診療日数は前年と同じ見込みです。"))
     else:
         parts.append("このスナップショットには外来診療日数が入っていないため、"
                      "外来診療日あたり売上は算出できません。"
@@ -926,9 +1018,12 @@ def _capacity(f):
 
     # --- 月末見込み（予測前提を含むことを明示）---
     if f.get("per_day_basis_gap") and f["days_prev"] is not None:
-        parts.append("なお月次実績が持つ前年の日数は「売上が発生した日」を数えたもので、"
-                     "訪問・介護だけ売上が立った日も含みます。数え方が違うため、"
-                     "月の診療日数そのものの前年差は出していません。")
+        parts.append("なお、ここまでの日数はすべて外来診療日数"
+                     "（外来保険・自費・物販のいずれかが計上された日）で数えています。"
+                     f"月次実績にはもう一つ「診療日数」があり、前年同月は"
+                     f"{cnt(f['days_prev'], '日')}ですが、こちらは売上が発生した日を"
+                     "数えたもので、訪問・介護だけ売上が立った日も含みます。"
+                     "数え方が違うため、月の診療日数そのものの前年差は出していません。")
     if f["pace_gap_rate"] is not None and f["pace_gap_rate"] > PACE_ALERT:
         parts.append(f"月末見込みは、これから診療する{cnt(f['days_remaining'], '日')}に"
                      f"1日あたり{yen_man(f['per_day_needed'])}を積む前提を含んでいます。"
@@ -1013,71 +1108,152 @@ def _structure(f, cap):
             "label": label, "absorbed": absorbed, "negligible": False}
 
 
+def _runs(series):
+    """同じ向きに動き続けた区間へ分割する。[{dir, i0, i1}]（dir: +1 上昇 / -1 低下 / 0 横ばい）"""
+    out = []
+    for i in range(1, len(series)):
+        d = series[i]["per_day"] - series[i - 1]["per_day"]
+        cur = 1 if d > 0 else (-1 if d < 0 else 0)
+        if out and out[-1]["dir"] == cur:
+            out[-1]["i1"] = i
+        else:
+            out.append({"dir": cur, "i0": i - 1, "i1": i})
+    return out
+
+
+def _mean(vals):
+    vals = [v for v in vals if v is not None]
+    return (sum(vals) / len(vals)) if vals else None
+
+
+def _man1(v):
+    """万円を小数1桁で表す。外来診療日あたりの水準は1万円刻みだと月ごとの差が
+    見えなくなるため、生産性の推移まわりだけこの精度で出す。"""
+    return "—" if v is None else f"{v / MAN:.1f}万円"
+
+
+def _sman1(v):
+    return "—" if v is None else f"{'+' if v > 0 else '▲'}{abs(v) / MAN:.1f}万円"
+
+
+def _chain(seg):
+    return " → ".join(f"{x['ym'][5:7]}月 {_man1(x['per_day'])}" for x in seg)
+
+
 def _productivity_trend(f):
-    """生産性の連続トレンド。基準を揃えられないときは判定そのものを出さない。
+    """外来診療日あたり売上の推移。分子は外来3区分、分母は外来診療日数。
 
-    使えるはずだった指標は2つあるが、cloud_deploy が持つデータでは
-    どちらも過去月とそろえられない。
+    以前は「売上発生日あたり総売上」で判定していたが、木曜休診が始まると訪問・介護
+    だけ売上が立つ木曜が分母に入り、生産性が落ちたように見えていた。monthly_actuals.csv
+    に「外来診療日数」の列が入ったので、全期間を同じ分母で並べられる。
 
-      外来診療日あたり売上
-        過去月の外来診療日数を出せる列が monthly_actuals.csv に無い。
-        「診療日数」は売上発生日数（訪問・介護だけの日を含む）で、外来診療日数ではない。
-
-      売上発生日あたり総売上
-        式そのものは全月そろっているが、木曜休診が始まると分母の中身が変わる。
-        訪問・介護だけ売上が立つ木曜が分母に入り、1日あたりが機械的に下がる。
-        これを生産性の低下とは読めない。
-
-    そのため木曜休診が効いている間は判定を出さず、出さない理由を返す。
-    定義がそろわない数字からトレンドを推測しない。
+    「N か月連続低下」だけを言うと、直近で向きが変わった月を見落とす。低下局面と直近の
+    反発は分けて出し、水準は直前3か月・直前6か月・直近12か月の分布と比べる。
     """
     hist = f.get("hist") or {}
-    series = [x for x in (hist.get("per_day") or []) if x["per_day"]]
-    if len(series) < 4:
-        return None
-    if f.get("per_day_basis_gap"):
-        return {"suppressed": True, "text": (
-            "1日あたり売上の推移は、今回は判定を出していません。"
-            "木曜休診が始まってから、訪問・介護だけ売上が立つ木曜が現れており、"
-            "過去月と同じ数え方の「1日あたり」を作れないためです。"
-            "月次実績に外来診療日数の列が入れば、外来診療日あたり売上として"
-            "同じ基準で並べられるようになります。"),
+    rows = hist.get("op_per_day") or []
+    if len(rows) < 4:
+        return None                      # 履歴そのものが足りない
+    series = [x for x in rows if x["per_day"]]
+    # 1か月でも分母が欠けた系列で連続性を語らない。黙って消すと「判定した結果
+    # 何も無かった」のか「判定できなかった」のかが読み手に区別できないため、
+    # 出せない理由のほうを返す。
+    if not hist.get("op_available") or len(series) < 4:
+        return {"suppressed": True, "kind": "unavailable", "text": (
+            "外来診療日あたり売上の推移は、今回は判定を出していません。"
+            "直近12か月のうち外来診療日数が入っていない月があり、"
+            "同じ分母で並べられないためです。月次実績にこの列がそろえば、"
+            "外来診療日あたり売上として同じ基準で並べられます。"),
             "months": 0, "direction": 0, "series": [], "days_diff": None}
-    run, direction = 1, 0
-    for i in range(len(series) - 1, 0, -1):
-        d = series[i]["per_day"] - series[i - 1]["per_day"]
-        cur_dir = 1 if d > 0 else (-1 if d < 0 else 0)
-        if cur_dir == 0:
-            break
-        if direction == 0:
-            direction = cur_dir
-        elif cur_dir != direction:
-            break
-        run += 1
-    if run < 3 or direction == 0:
-        return None
 
-    seg = series[-run:]
-    word = "低下" if direction < 0 else "上昇"
-    chain = " → ".join(f"{x['ym'][5:7]}月 {x['per_day'] / MAN:.1f}万円" for x in seg)
-    basis = hist.get("days_basis", HIST_DAYS_BASIS)
-    d_days = seg[-1]["days"] - seg[0]["days"]
-    parts = [f"{basis}あたりの総売上が{run}か月続けて{word}しています（{chain}）。"]
-    if d_days > 0 and direction < 0:
-        parts.append(f"同じ期間に診療日数は{cnt(seg[0]['days'], '日')}から"
-                     f"{cnt(seg[-1]['days'], '日')}へ{scnt(d_days, '日')}増えており、"
-                     f"{basis}を増やしながら1日あたりが落ちている形です。"
-                     "月の売上が保たれていても、1日あたりの生産性は下がっています。")
-    elif d_days < 0 and direction < 0:
-        parts.append(f"同じ期間に診療日数も{scnt(d_days, '日')}減っており、"
-                     "日数と1日あたりの両方が下がっています。")
+    basis = hist.get("op_days_basis", BASIS_OUTPATIENT)
+    st = (hist.get("stats") or {}).get("op_per_day")
+    runs = _runs(series)
+    last, prev = series[-1], series[-2]
+    tail = runs[-1]
+
+    # 直近の水準は、自分自身を入れない直前3か月・直前6か月の平均と比べる。
+    prev3 = _mean([x["per_day"] for x in series[-4:-1]])
+    prev6 = _mean([x["per_day"] for x in series[-7:-1]])
+    level = _level(st, last["per_day"])
+
+    parts, seg_out = [], []
+    months, direction, kind, headline = 0, 0, "level", None
+
+    turn = (len(runs) >= 2 and tail["i1"] - tail["i0"] == 1
+            and runs[-2]["dir"] == -tail["dir"]
+            and runs[-2]["i1"] - runs[-2]["i0"] >= 2)
+
+    if turn:
+        # 直近1か月だけ向きが変わった。何か月の局面からの転換かを併せて出さないと、
+        # 「改善した」「悪化した」だけの読み方になってしまう。
+        pre = runs[-2]
+        seg = series[pre["i0"]:pre["i1"] + 1]
+        n = pre["i1"] - pre["i0"]
+        w1 = "低下" if pre["dir"] < 0 else "上昇"
+        w1v = "下回り" if pre["dir"] < 0 else "上回り"
+        w2 = "反発" if pre["dir"] < 0 else "反落"
+        d0 = seg[-1]["per_day"] - seg[0]["per_day"]
+        d1 = last["per_day"] - prev["per_day"]
+        parts.append(
+            f"{basis}あたり売上は、{seg[0]['ym'][5:7]}月の{_man1(seg[0]['per_day'])}から"
+            f"{seg[-1]['ym'][5:7]}月の{_man1(seg[-1]['per_day'])}まで"
+            f"{n}か月続けて前月を{w1v}（{_chain(seg)}／{_sman1(d0)}・"
+            f"{pct(rate(seg[-1]['per_day'], seg[0]['per_day']))}）、"
+            f"{last['ym'][5:7]}月は{_man1(last['per_day'])}へ{_sman1(d1)}"
+            f"（{pct(rate(last['per_day'], prev['per_day']))}）{w2}しました。")
+        months, direction, kind = n, pre["dir"], "turn"
+        seg_out = seg + [last]
+        headline = (f"{basis}あたり売上が{n}か月{w1}したあと"
+                    f"{last['ym'][5:7]}月に{w2}した理由を分解する")
+    elif tail["dir"] != 0 and tail["i1"] - tail["i0"] >= 3:
+        n = tail["i1"] - tail["i0"]
+        seg = series[tail["i0"]:tail["i1"] + 1]
+        word = "低下" if tail["dir"] < 0 else "上昇"
+        parts.append(f"{basis}あたり売上が{n}か月続けて{word}しています"
+                     f"（{_chain(seg)}／{_sman1(seg[-1]['per_day'] - seg[0]['per_day'])}・"
+                     f"{pct(rate(seg[-1]['per_day'], seg[0]['per_day']))}）。")
+        months, direction, kind = n, tail["dir"], "run"
+        seg_out = seg
+        headline = f"{basis}あたり売上が{n}か月続けて{word}している理由を分解する"
     else:
-        parts.append(f"同じ期間の診療日数は{cnt(seg[0]['days'], '日')}から"
-                     f"{cnt(seg[-1]['days'], '日')}です。")
+        parts.append(f"{basis}あたり売上は、直近では一方向に続けて動いてはいません"
+                     f"（{_chain(series[-4:])}）。")
+        seg_out = series[-4:]
+
+    # 水準の評価。向きだけでなく、どのくらいの高さにいるのかを必ず添える。
+    def _vs(label, base):
+        d = last["per_day"] - base
+        if not round(d):
+            return f"{label}{_man1(base)}とほぼ同水準"
+        return (f"{label}{_man1(base)}を{_man1(abs(d))}"
+                + ("上回り" if d > 0 else "下回り"))
+
+    lv = [_vs("直前3か月平均", prev3) for _ in (1,) if prev3 is not None]
+    lv += [_vs("直前6か月平均", prev6) for _ in (1,) if prev6 is not None]
+    if lv:
+        parts.append(f"{last['ym'][5:7]}月の{_man1(last['per_day'])}は、"
+                     + "、".join(lv) + "ます。")
+    if level:
+        parts.append(f"直近12か月の分布では{level}に位置します"
+                     f"（中央値{_man1(st['median']) if st else '—'}）。")
+
+    # 分母そのものの動きも書く。1日あたりが上がっていても、外来診療日が減っていれば
+    # 月の売上は増えない。ここを混ぜないために日数の変化を別に出す。
+    d_days = None
+    if seg_out and seg_out[0]["days"] is not None and seg_out[-1]["days"] is not None:
+        d_days = seg_out[-1]["days"] - seg_out[0]["days"]
+        parts.append(f"同じ期間の外来診療日数は{cnt(seg_out[0]['days'], '日')}から"
+                     f"{cnt(seg_out[-1]['days'], '日')}へ"
+                     + (f"{scnt(d_days, '日')}動いています。" if d_days
+                        else "変わっていません。"))
     parts.append("これは今月だけの動きではないため、月内の打ち手ではなく"
                  "来月以降の構造として扱います。")
-    return {"text": "".join(parts), "months": run, "direction": direction,
-            "series": seg, "days_diff": d_days}
+
+    return {"text": "".join(parts), "months": months, "direction": direction,
+            "kind": kind, "headline": headline, "series": seg_out,
+            "latest": last, "prev3": prev3, "prev6": prev6, "level": level,
+            "basis": basis, "days_diff": d_days}
 
 
 # ======================================================================
@@ -1405,8 +1581,7 @@ def _actions(f, comps, cause, cap, stru, spv):
         if f["ins_per_day_now"] is not None:
             check.append(f"{stru['label']}以外の曜日の外来診療日あたり外来保険"
                          f"（今月見込み{yen_man(f['ins_per_day_now'])}）")
-        check.append("外来診療日ごとの来院回数（前年と並べるには月次実績に"
-                     "外来診療日数の列が必要）")
+        check.append("外来診療日ごとの来院回数を前年同月と並べた推移")
         if not check:
             check = ["診療日ごとの来院回数と外来保険売上を前年同月と並べた表"]
         decide = ("前年より高い水準が続いているなら、減った診療日の分は他の曜日で吸収できていると"
@@ -1459,14 +1634,16 @@ def _actions(f, comps, cause, cap, stru, spv):
 
     # 生産性トレンドは今月の打ち手ではなく、来月以降の構造課題として置く（A-6）
     trend = _productivity_trend(f)
-    if trend is not None and not trend.get("suppressed"):
-        word = "低下" if trend["direction"] < 0 else "上昇"
-        out.append(_act(f"1診療日あたりの生産性が{trend['months']}か月続けて{word}している"
-                        "原因を分解する",
-                        "診療日数と1日あたり売上",
+    # 一方向に続いた局面か、直近で向きが変わった局面のときだけ論点として立てる。
+    # 「今月たまたま高い／低い」だけでは来月以降の構造課題にならない。
+    if (trend is not None and not trend.get("suppressed")
+            and trend.get("kind") in ("run", "turn") and trend.get("headline")):
+        out.append(_act(trend["headline"],
+                        "外来診療日数と外来診療日あたり売上",
                         trend["text"],
-                        ["月ごとの 診療日数 / 1日あたり売上 / 1日あたり来院回数",
-                         "同じ期間の自費と外来保険の1日あたりの推移"],
+                        ["月ごとの 外来診療日数 / 外来診療日あたり売上 / "
+                         "外来診療日あたり来院回数",
+                         "同じ期間の自費と外来保険の外来診療日あたりの推移"],
                         "1日あたり来院回数が下がっているなら予約の埋まり方の問題、"
                         "来院回数は同じで金額が下がっているなら診療内容と単価の問題です。"
                         "来月以降の計画をどちらの前提で置くかを決めます。",
