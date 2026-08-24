@@ -36,8 +36,20 @@ import streamlit as st
 
 # 経営分析の文章生成。表示専用モジュールで、予測値には触れない。
 # 読み込めない環境でも画面は落とさない（分析ブロックだけ出さない）。
+#
+# reload しているのは、Streamlit がこのファイル（メインスクリプト）だけを
+# 実行のたびに読み直し、import 済みモジュールは sys.modules に残したまま
+# 使い続けるため。デプロイでファイルが差し替わっても、プロセスが再起動
+# しない限り mgmt_report は古いままになり、こちら側の呼び出しとだけ食い違う。
+# 実際に本番で
+#   build_management_report() takes from 1 to 3 positional arguments but 4 were given
+# が出た（画面は新しい呼び出し、モジュールは history_rows を受け取る前の版）。
+# 毎回ソースから読み直せば、この食い違いは起きない。定数と関数だけの
+# モジュールなので、読み直しの副作用も費用もない。
 try:
+    import importlib
     import mgmt_report as MR
+    MR = importlib.reload(MR)
 except Exception:      # pragma: no cover - 実行環境にファイルが無い場合のみ
     MR = None
 
@@ -1171,7 +1183,10 @@ def render(month, snap, nav=None):
                 read_history_rows())
         except Exception as e:      # 分析が落ちても数値カードは出す
             st.markdown(f"<div class='mfc-note'>経営分析の生成に失敗しました（{_html.escape(str(e))}）。"
-                        "数値カードは通常どおり表示しています。</div>", unsafe_allow_html=True)
+                        "数値カードは通常どおり表示しています。<br>"
+                        "引数の数が合わないという内容の場合は、画面の更新に対して"
+                        "分析モジュールが古いまま動いています。アプリを再起動すると直ります。"
+                        "</div>", unsafe_allow_html=True)
             mgmt = None
 
     cur = fnum(roll.get("current_forecast_total"))

@@ -10,6 +10,7 @@
   4. 「0〜0万円」のような意味のない表示が出ないこと
   5. 同じ画面に矛盾した数値・文章が出ないこと
 """
+import io
 import unittest
 
 import mgmt_report as MR
@@ -1033,6 +1034,94 @@ class TestPerDayDefinitions(unittest.TestCase):
         text = all_text(rep) + (rep["trend"] or {}).get("text", "")
         for bad in ("6か月続けて低下", "6か月続けて上昇", "か月続けて低下しています（02月"):
             self.assertNotIn(bad, text)
+
+
+# ======================================================================
+class TestModuleInterface(unittest.TestCase):
+    """画面側の呼び出しと build_management_report の引数がずれていないこと。
+
+    本番で
+      build_management_report() takes from 1 to 3 positional arguments but 4 were given
+    が出た。Streamlit はメインスクリプトだけ実行のたびに読み直し、import 済み
+    モジュールは sys.modules に残すため、デプロイ後もプロセスが再起動しないと
+    mgmt_report が古いまま残る。呼び出し側と定義側の本数をここで固定する。
+    """
+
+    def _app_source(self):
+        import os
+        app = os.path.join(os.path.dirname(os.path.abspath(__file__)), "streamlit_app.py")
+        if not os.path.exists(app):
+            self.skipTest("streamlit_app.py が無い")
+        return io.open(app, encoding="utf-8").read()
+
+    def test_signature_accepts_four_positional_arguments(self):
+        import inspect
+        names = list(inspect.signature(MR.build_management_report).parameters)
+        self.assertEqual(names[:4],
+                         ["roll", "prev_year_row", "prev_forecast_row", "history_rows"])
+        MR.build_management_report({}, None, None, [])      # 画面と同じ4引数
+
+    def test_streamlit_call_matches_signature(self):
+        import inspect
+        src = self._app_source()
+        marker = "MR.build_management_report("
+        i = src.find(marker)
+        self.assertGreater(i, 0, "呼び出しが見つからない")
+        # 対応する閉じ括弧まで読む
+        depth, j = 0, i + len(marker) - 1
+        while j < len(src):
+            if src[j] == "(":
+                depth += 1
+            elif src[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        inner = src[i + len(marker):j]
+        # トップレベルのカンマだけで割る
+        args, depth, cur = [], 0, ""
+        for ch in inner:
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            if ch == "," and depth == 0:
+                args.append(cur); cur = ""
+            else:
+                cur += ch
+        if cur.strip():
+            args.append(cur)
+        args = [a.strip() for a in args if a.strip()]
+        params = inspect.signature(MR.build_management_report).parameters
+        self.assertEqual(len(args), 4, args)
+        self.assertLessEqual(len(args), len(params),
+                             f"呼び出し{len(args)}引数 > 定義{len(params)}引数")
+        # history を渡すのをやめてエラーを消す、という直し方をしていないこと
+        self.assertIn("read_history_rows", inner)
+
+    def test_app_reloads_the_module(self):
+        """Streamlit の sys.modules キャッシュ対策が入っていること。"""
+        self.assertIn("importlib.reload(MR)", self._app_source())
+
+    def test_stale_module_would_be_replaced_by_reload(self):
+        """古いモジュールが sys.modules に残っていても、reload で現在の定義に戻る。"""
+        import sys, types, importlib, inspect
+        saved = sys.modules.get("mgmt_report")
+        try:
+            stale = types.ModuleType("mgmt_report")
+            stale.__file__ = MR.__file__
+            exec("def build_management_report(roll, prev_year_row=None, "
+                 "prev_forecast_row=None):\n    return {}\n", stale.__dict__)
+            sys.modules["mgmt_report"] = stale
+            with self.assertRaises(TypeError):
+                stale.build_management_report({}, None, None, [])
+            fresh = importlib.reload(stale)
+            self.assertIn("history_rows",
+                          inspect.signature(fresh.build_management_report).parameters)
+            fresh.build_management_report({}, None, None, [])
+        finally:
+            if saved is not None:
+                sys.modules["mgmt_report"] = saved
 
 
 if __name__ == "__main__":

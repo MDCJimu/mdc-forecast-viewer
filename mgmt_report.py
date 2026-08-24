@@ -532,7 +532,7 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
         opt.append({"key": "unrecorded", "yen": gap,
                     "text": (f"売上がまだ入っていない{cnt(d_unrec, '日')}を1日あたり"
                              f"{yen_man(f['per_day_unrecorded'])}と置いています。"
-                             f"確定した{cnt(d_act, '日')}の平均"
+                             f"外来診療を行った{cnt(d_out_act, '日')}の平均"
                              f"{yen_man(f['per_day_done'])}より高く、差は{yen_man(gap)}です。")})
     rf = f_(roll.get("reservation_factor_final", roll.get("reservation_factor")))
     if rf and rf > 1.0 and remaining:
