@@ -287,6 +287,20 @@ def read_history_rows():
         return []
 
 
+def read_target_rows():
+    """monthly_targets.csv の全行。経営計画目標はこのファイルだけが正。
+
+    スキーマの解釈（列名・未設定の扱い）は mgmt_report 側に置いてあるので、
+    ここは場所を渡すだけにする。読めなければ空リスト＝目標は未設定。
+    """
+    if MR is None:
+        return []
+    try:
+        return MR.read_monthly_targets(os.path.join(DATA, HIST_DIR))
+    except Exception:
+        return []
+
+
 def relabel_v3_summary(text):
     """月初ベースの出力レポートを表示するときのラベル補正。
 
@@ -340,6 +354,125 @@ def _p(txt):
     return f"<p>{_html.escape(str(txt))}</p>"
 
 
+def _render_position(rep):
+    """経営の現在地。目標・予測・参考水準を、意味ごとに分けて出す。
+
+    3つは性格が違うので、同じ表に混ぜて並べない。
+      目標      人が決めた値。1本だけ。未登録なら「未設定」と出す。
+      予測      Forecast の出力。
+      参考水準  過去実績を今月の外来診療日数に換算した値。目標ではない。
+
+    参考水準の並びは金額の降順で、月によって上下が入れ替わっても文が壊れない
+    名前（すべて「○○水準」）にしてある。
+    """
+    if not rep:
+        return
+    tgt = rep.get("target") or {}
+    lv = rep.get("levels") or {}
+    pos = rep.get("position") or {}
+    if not tgt and not lv:
+        return
+
+    b = ["<div class='mfc-pos'>", "<div class='h'>経営の現在地</div>"]
+
+    # --- 目標 ---
+    b.append("<div class='grp'>目標</div><table class='pt'>")
+    if tgt.get("has_target"):
+        b.append(f"<tr class='tgt'><td>経営計画目標</td>"
+                 f"<td class='n'>{man(tgt['target'])}</td><td class='w'></td></tr>")
+        if tgt.get("note"):
+            b.append(f"<tr><td colspan='3' class='note'>"
+                     f"{_html.escape(tgt['note'])}</td></tr>")
+    else:
+        b.append("<tr class='tgt'><td>経営計画目標</td>"
+                 "<td class='n na'>未設定</td><td class='w'></td></tr>")
+    b.append("</table>")
+
+    # --- 予測 ---
+    f = rep.get("facts") or {}
+    b.append("<div class='grp'>予測</div><table class='pt'>")
+    if f.get("total") is not None:
+        b.append(f"<tr class='fc'><td>着地見込み</td>"
+                 f"<td class='n'>{man(f['total'])}</td>"
+                 f"<td class='w'>{_perday(f.get('per_day_now'))}</td></tr>")
+    if f.get("conservative") is not None:
+        b.append(f"<tr><td>保守ライン</td>"
+                 f"<td class='n'>{man(f['conservative'])}</td>"
+                 f"<td class='w'></td></tr>")
+    b.append("</table>")
+
+    # --- 参考水準 ---
+    disp = lv.get("display") or []
+    if disp:
+        b.append("<div class='grp'>参考水準"
+                 "<span class='s'>（過去実績を今月の外来診療日数に換算した値。"
+                 "目標ではありません）</span></div><table class='pt'>")
+        for r in disp:
+            cls = "ref" + ("" if r["main"] else " sub")
+            b.append(f"<tr class='{cls}'><td>{_html.escape(r['label'])}</td>"
+                     f"<td class='n'>{man(r['total'])}</td>"
+                     f"<td class='w'>{_perday(r['per_day'])}</td></tr>")
+        b.append("</table>")
+        if lv.get("visit_care") is not None:
+            b.append(f"<div class='note'>参考水準はいずれも、外来3区分"
+                     f"（外来保険＋自費＋物販）の換算額に、今月の訪問保険・介護の見込み"
+                     f"{man(lv['visit_care'])}を加えた総売上です。"
+                     f"右の数字は外来診療日1日あたりの外来3区分です。</div>")
+
+    for t in (pos.get("lines") or []):
+        b.append(_p(t))
+    b.append("</div>")
+    st.markdown("".join(b), unsafe_allow_html=True)
+
+
+def _perday(v):
+    return "" if v is None else f"1日 {v / 10000:.1f}万円"
+
+
+DECOMP_GROUPS = (
+    ("患者価値・来院構造（外来＋訪問）",
+     ("dental", "visits", "patients", "per_visit", "per_patient",
+      "visits_per_patient")),
+    ("外来生産性（外来のみ）", ("op", "per_day")),
+)
+
+
+def _render_decomp_table(dc):
+    """売上の組み立てを、母集団ごとに群を分けた表にする。"""
+    by = dc.get("by_key") or {}
+    out = ["<table class='mfc-ctab'><tr><th>指標</th><th class='n'>今月</th>"
+           "<th class='n'>前年同月</th><th class='n'>差</th><th class='n'>前年比</th>"
+           "<th>数え方</th></tr>"]
+    for gname, keys in DECOMP_GROUPS:
+        rows = [by[k] for k in keys if k in by]
+        if not rows:
+            continue
+        out.append(f"<tr class='grp'><td colspan='6'>{_html.escape(gname)}</td></tr>")
+        for r in rows:
+            rt = "—" if r["rate"] is None else f"{r['rate']:+.1f}%"
+            out.append(
+                f"<tr><td>{_html.escape(r['label'])}</td>"
+                f"<td class='n'>{_dv(r['now'], r['unit'])}</td>"
+                f"<td class='n'>{_dv(r['prev'], r['unit'])}</td>"
+                f"<td class='n {signclass(r['diff'])}'>{_dv(r['diff'], r['unit'], True)}</td>"
+                f"<td class='n {signclass(r['rate'])}'>{rt}</td>"
+                f"<td class='s'>{_html.escape(r['how'])}</td></tr>")
+    out.append("</table>")
+    return "".join(out)
+
+
+def _dv(v, unit, signed=False):
+    """指標の値を単位に合わせて整形する。回数だけ小数2桁（1.61回のような値のため）。"""
+    if v is None:
+        return "—"
+    sign = "+" if (signed and v > 0) else ""
+    if unit == "回" and abs(v) < 100:
+        return f"{sign}{v:,.2f}回"
+    if unit == "円" and abs(v) >= 1_000_000:
+        return man(v)
+    return f"{sign}{v:,.0f}{unit}"
+
+
 def _render_mgmt_report(rep):
     """参考レポートの冒頭。結論 → 主因 → 稼働 → 構造変化 → 月末までの論点。"""
     if not rep:
@@ -354,6 +487,13 @@ def _render_mgmt_report(rep):
     if rep["capacity"]["text"]:
         blocks.append("<div class='h'>稼働の評価</div>")
         blocks.append(_p(rep["capacity"]["text"]))
+    dc = rep.get("decomposition") or {}
+    if dc.get("text"):
+        # 患者価値・来院構造（外来＋訪問）と 外来生産性（外来だけ）は母集団が違う。
+        # 表でも群を分けて、掛け算でつながるのは同じ群の中だけだと分かるようにする。
+        blocks.append("<div class='h'>売上の組み立て</div>")
+        blocks.append(_render_decomp_table(dc))
+        blocks.append(_p(dc["text"]))
     if rep["structure"] or rep.get("trend"):
         blocks.append("<div class='h'>構造変化</div>")
         if rep["structure"]:
@@ -952,6 +1092,31 @@ hr{display:none;}
 .mfc-rep p:last-child{margin-bottom:0;}
 .mfc-rep b{color:var(--navy);font-weight:800;}
 .mfc-rep .na{font-size:14px;color:var(--faint);line-height:1.8;}
+/* 経営の現在地。目標・予測・参考水準を見た目でも分ける。
+   目標=ゴールドの左罫、予測=紺の左罫、参考水準=細い灰の左罫。
+   参考水準は金額の降順で並ぶので、行の色で「どれが目標か」を示す。 */
+.mfc-pos{background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:22px 24px;margin:0 0 14px;}
+.mfc-pos .h{font-size:11.5px;font-weight:800;color:var(--gold);letter-spacing:1.6px;
+  margin:0 0 10px;}
+.mfc-pos .grp{font-size:11px;font-weight:800;color:var(--faint);letter-spacing:1.2px;
+  margin:14px 0 4px;}
+.mfc-pos .grp .s{font-weight:600;letter-spacing:0;margin-left:6px;}
+.mfc-pos .pt{width:100%;border-collapse:collapse;font-size:14px;}
+.mfc-pos .pt td{padding:6px 8px;border-bottom:1px solid var(--line);}
+.mfc-pos .pt td.n{text-align:right;font-weight:800;white-space:nowrap;}
+.mfc-pos .pt td.w{text-align:right;color:var(--faint);font-size:12px;white-space:nowrap;}
+.mfc-pos .pt td.na{color:var(--faint);font-weight:700;}
+.mfc-pos .pt tr.tgt td{border-left:3px solid var(--gold);background:rgba(200,169,106,.06);}
+.mfc-pos .pt tr.fc td{border-left:3px solid var(--navy);}
+.mfc-pos .pt tr.ref td{border-left:3px solid var(--line);}
+.mfc-pos .pt tr.ref.sub td{color:var(--faint);}
+.mfc-pos .note{font-size:12px;color:var(--faint);line-height:1.75;margin:6px 0 0;}
+.mfc-pos p{font-size:15px;line-height:1.95;color:var(--ink);margin:10px 0 0;}
+/* 売上の組み立て表。母集団の違う指標を同じ表に並べるので、群の見出し行を入れる。 */
+.mfc-ctab tr.grp td{font-size:11px;font-weight:800;color:var(--faint);
+  letter-spacing:1.1px;padding-top:12px;border-bottom:1px solid var(--line);}
+.mfc-ctab td.s{font-size:11.5px;color:var(--faint);}
 .mfc-ctab{width:100%;border-collapse:collapse;font-size:13.5px;margin:4px 0 2px;}
 .mfc-ctab th{text-align:left;font-weight:800;color:var(--faint);font-size:11.5px;
   border-bottom:1px solid var(--line);padding:7px 8px;}
@@ -1180,7 +1345,7 @@ def render(month, snap, nav=None):
         try:
             mgmt = MR.build_management_report(
                 roll, read_prevyear_actual_row(roll.get("target_month")), _prev_fc,
-                read_history_rows())
+                read_history_rows(), read_target_rows())
         except Exception as e:      # 分析が落ちても数値カードは出す
             st.markdown(f"<div class='mfc-note'>経営分析の生成に失敗しました（{_html.escape(str(e))}）。"
                         "数値カードは通常どおり表示しています。<br>"
@@ -1645,6 +1810,7 @@ def render(month, snap, nav=None):
     # ===== 参考レポート（折りたたみ）=====
     st.markdown('<div class="mfc-tier"><span class="n">REFERENCE</span>参考レポート'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
+    _render_position(mgmt)
     _render_mgmt_report(mgmt)
 
     with st.expander("売上内訳・判断サマリー（詳細）", expanded=False):

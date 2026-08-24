@@ -31,6 +31,7 @@ def make_roll(insurance, selfpay, product,
               patients=950, patients_prev=900,
               cancel_rate=15.1, cancel_rate_prev=15.7,
               actual_to_date=None, remaining_forecast=None,
+              unrecorded_total=None,
               care_revision="2026-06",
               obs_days=13, obs_total=10_912_740, obs_outp=7_727_810,
               obs_jihi=2_981_000, obs_buppin=203_930,
@@ -87,6 +88,13 @@ def make_roll(insurance, selfpay, product,
            if with_outpatient_days else {}),
         "actual_to_date_total": actual_to_date,
         "remaining_forecast_total": remaining_forecast,
+        # 実スナップショットでは
+        #   確定実績 + 経過未反映 + 残り見込み = 外来3区分の月末見込み
+        # が成り立つ。"auto" を渡すと、その形になる残差を入れる。
+        **({"elapsed_unrecorded_total": (
+            (outpatient + selfpay + product) - actual_to_date - remaining_forecast
+            if unrecorded_total == "auto" else unrecorded_total)}
+           if unrecorded_total is not None else {}),
         "reservation_visible_remaining_as_of": 452,
         "reservation_projected_final_remaining": 496,
         "resec_data_status": "反映済み",
@@ -129,21 +137,22 @@ def hist_rows(selfpay=None, per_day_trend=None, out_days=None,
     推移を作るのに使う）。with_outpatient_days=False は列が入る前の履歴の再現。
     """
     base = [
-        ("2025-08", 21805410, 13393890, 8131750, 279770, 23),
-        ("2025-09", 19752670, 13693510, 5869820, 189340, 24),
-        ("2025-10", 18072000, 14510000, 3320000, 242000, 26),
-        ("2025-11", 20380000, 13930000, 6250000, 190000, 23),
-        ("2025-12", 19320000, 14920000, 4140000, 260000, 24),
-        ("2026-01", 20460000, 14070000, 6150000, 250000, 23),
-        ("2026-02", 20560000, 12490000, 7780000, 290000, 22),
-        ("2026-03", 23230000, 14580000, 8300000, 350000, 25),
-        ("2026-04", 22700000, 13220000, 9250000, 220000, 26),
-        ("2026-05", 19080000, 13420000, 5460000, 200000, 24),
-        ("2026-06", 20221040, 14963140, 5019300, 238600, 26),
-        ("2026-07", 20303270, 14481250, 5577000, 245020, 27),
+        # 年月, 月間総売上, 保険診療売上, 自費, 物販, 診療日数, 総来院回数, 総患者数
+        ("2025-08", 21805410, 13393890, 8131750, 279770, 23, 1439, 891),
+        ("2025-09", 19752670, 13693510, 5869820, 189340, 24, 1358, 860),
+        ("2025-10", 18072000, 14510000, 3320000, 242000, 26, 1488, 902),
+        ("2025-11", 20380000, 13930000, 6250000, 190000, 23, 1380, 886),
+        ("2025-12", 19320000, 14920000, 4140000, 260000, 24, 1483, 968),
+        ("2026-01", 20460000, 14070000, 6150000, 250000, 23, 1437, 933),
+        ("2026-02", 20560000, 12490000, 7780000, 290000, 22, 1312, 849),
+        ("2026-03", 23230000, 14580000, 8300000, 350000, 25, 1568, 972),
+        ("2026-04", 22700000, 13220000, 9250000, 220000, 26, 1398, 854),
+        ("2026-05", 19080000, 13420000, 5460000, 200000, 24, 1387, 879),
+        ("2026-06", 20221040, 14963140, 5019300, 238600, 26, 1506, 943),
+        ("2026-07", 20303270, 14481250, 5577000, 245020, 27, 1512, 920),
     ]
     rows = []
-    for i, (ym, tot, hok, jih, bup, days) in enumerate(base):
+    for i, (ym, tot, hok, jih, bup, days, vis, pat) in enumerate(base):
         if selfpay is not None:
             jih = selfpay[i]
         if per_day_trend is not None:
@@ -156,7 +165,9 @@ def hist_rows(selfpay=None, per_day_trend=None, out_days=None,
         row = {"年月": ym, "月間総売上": tot, "保険診療売上": hok,
                "自費診療売上": jih, "物販売上": bup, "診療日数": days,
                "外来保険売上": gairai,
-               "訪問保険売上": 1_400_000, "介護売上": 600_000}
+               "訪問保険売上": 1_400_000, "介護売上": 600_000,
+               # 患者価値KPIの分母。どちらも訪問診療の患者を含む総数。
+               "総来院回数": vis, "総患者数": pat}
         if with_outpatient_days:
             # 既定は「訪問・介護だけの日が無い月」＝診療日数と同じ。
             row[MR.HIST_OUTPATIENT_DAYS_COL] = (out_days[i] if out_days else days)
@@ -176,9 +187,10 @@ PREV_FC = {"as_of_date": "2026-08-21", "current_forecast_total": "21878649",
            "insurance_forecast": "15132014", "selfpay_forecast": "6429462"}
 
 
-def build(roll, prev_row=PREV_ROW, prev_fc=PREV_FC, hist=None):
+def build(roll, prev_row=PREV_ROW, prev_fc=PREV_FC, hist=None, targets=None):
     return MR.build_management_report(roll, prev_row, prev_fc,
-                                      hist_rows() if hist is None else hist)
+                                      hist_rows() if hist is None else hist,
+                                      targets)
 
 
 def make_roll_selfpay_real_drop(**kw):
@@ -738,7 +750,7 @@ class TestConsistency(unittest.TestCase):
             self.assertIn("前年", k, r["name"])
         kinds = {r["name"]: r["kind"] for r in rep["capacity"]["rows"]}
         self.assertTrue(kinds.get("キャンセル率", "").startswith("実績"))
-        self.assertTrue(kinds.get("来院回数", "").startswith("月末見込み"))
+        self.assertTrue(kinds.get("総来院回数", "").startswith("月末見込み"))
 
     def test_percent_sign_matches_amount_sign(self):
         rep = build(make_roll(15_113_808, 6_010_211, 316_528,
@@ -1235,6 +1247,303 @@ class TestPublishedOutpatientDays(unittest.TestCase):
 
 
 # ======================================================================
+class TestTargetAndLevels(unittest.TestCase):
+    """経営計画目標（人が決める1本）と参考水準（自動計算）を混ぜないこと。"""
+
+    ROLL = dict(insurance=15_113_808, selfpay=6_010_211, product=316_528,
+                insurance_prev=13_393_890, selfpay_prev=8_131_750, product_prev=279_770,
+                thursday_closed=True)
+
+    def _rep(self, targets=None, **kw):
+        kw = dict(self.ROLL, **kw)
+        return build(make_roll(**kw), targets=targets)
+
+    # ---- 未設定 ----------------------------------------------------
+    def test_empty_file_is_normal(self):
+        """monthly_targets.csv が空でも落ちない。"""
+        for t in (None, [], [{"年月": "2026-08", "経営計画目標": "", "備考": ""}]):
+            rep = self._rep(targets=t)
+            self.assertFalse(rep["target"]["has_target"], t)
+            self.assertIsNone(rep["facts"]["target_sales"], t)
+
+    def test_missing_target_is_not_filled_in(self):
+        """目標未設定を、過去実績や参考水準で勝手に埋めない。"""
+        rep = self._rep(targets=[])
+        self.assertIsNone(rep["target"]["target"])
+        self.assertIsNone(rep["target"]["diff"])
+        self.assertIsNone(rep["target"]["rate"])
+        self.assertIsNone(rep["target"]["pace"])
+        # 参考水準は出ているが、それを目標として持ち込んでいないこと
+        self.assertTrue(rep["levels"]["display"])
+        for r in rep["levels"]["display"]:
+            self.assertNotEqual(r["total"], rep["facts"]["target_sales"])
+
+    def test_no_achievement_verdict_without_target(self):
+        """目標未設定では達成・未達を判定しない。"""
+        rep = self._rep(targets=[])
+        t = " ".join(rep["position"]["lines"])
+        self.assertIn("経営計画目標は未設定です。", t)
+        self.assertIn("目標達成・未達の判定は行っていません", t)
+        for ng in ("目標未達", "未達です", "達成見込み", "目標を上回"):
+            self.assertNotIn(ng, t)
+        self.assertIsNone(rep["target"]["achieved"])
+
+    def test_zero_or_negative_target_is_treated_as_unset(self):
+        for v in ("0", "-1", "abc"):
+            rep = self._rep(targets=[{"年月": "2026-08", "経営計画目標": v, "備考": ""}])
+            self.assertFalse(rep["target"]["has_target"], v)
+
+    def test_target_of_another_month_is_not_used(self):
+        rep = self._rep(targets=[{"年月": "2026-09", "経営計画目標": "21500000",
+                                  "備考": ""}])
+        self.assertFalse(rep["target"]["has_target"])
+
+    # ---- 目標あり ---------------------------------------------------
+    def test_target_diff_and_rate(self):
+        """目標が入ったときだけ目標差と達成見込み率を出す。"""
+        rep = self._rep(targets=[{"年月": "2026-08", "経営計画目標": "21500000",
+                                  "備考": "検証用"}])
+        t = rep["target"]
+        self.assertTrue(t["has_target"])
+        self.assertEqual(t["target"], 21_500_000)
+        total = rep["facts"]["total"]
+        self.assertAlmostEqual(t["diff"], total - 21_500_000, places=6)
+        self.assertAlmostEqual(t["rate"], total / 21_500_000, places=9)
+        self.assertFalse(t["achieved"])
+        self.assertEqual(t["note"], "検証用")
+
+    def test_remaining_pace_does_not_double_count(self):
+        """残り必要額 = 目標 − 訪問介護 − 確定実績 − 経過未反映。"""
+        rep = self._rep(unrecorded_total="auto",
+                        targets=[{"年月": "2026-08", "経営計画目標": "21500000",
+                                  "備考": ""}])
+        f, p = rep["facts"], rep["target"]["pace"]
+        self.assertIsNotNone(p)
+        want = (21_500_000 - (f["visit_ins"] + f["care"])
+                - f["actual_to_date"] - f["unrecorded_total"])
+        self.assertAlmostEqual(p["need_total"], want, places=6)
+        self.assertAlmostEqual(p["need_per_day"], want / p["days_remaining"], places=6)
+        # 残りは「外来診療日」で割る（暦日でも売上発生日でもない）
+        self.assertEqual(p["days_remaining"], f["days_remaining_outpatient"])
+        # 3要素の合計が外来3区分の月末見込みに一致する＝二重計上が無い
+        self.assertAlmostEqual(
+            f["actual_to_date"] + f["unrecorded_total"] + f["remaining_forecast"],
+            f["op_now"], delta=2)
+        self.assertAlmostEqual(p["current_per_day"],
+                               f["remaining_forecast"] / p["days_remaining"], places=6)
+
+    def test_no_pace_without_target(self):
+        self.assertIsNone(self._rep(targets=[])["target"]["pace"])
+
+    # ---- 参考水準 ---------------------------------------------------
+    def test_four_main_levels(self):
+        rep = self._rep(targets=[])
+        keys = {r["key"] for r in rep["levels"]["display"]}
+        self.assertEqual(keys, {"prev_year", "recent", "top_quartile", "best"})
+        self.assertEqual({r["key"] for r in rep["levels"]["main"]},
+                         {"prev_year", "recent"})
+        self.assertEqual({r["key"] for r in rep["levels"]["sub"]},
+                         {"top_quartile", "best"})
+
+    def test_levels_use_outpatient_days_not_clinic_days(self):
+        """参考水準の分母は外来診療日数。診療日数は使わない。"""
+        rep = self._rep(targets=[])
+        f = rep["facts"]
+        days = f["days_month_outpatient"]
+        vc = f["visit_ins"] + f["care"]
+        for r in rep["levels"]["display"]:
+            self.assertAlmostEqual(r["outpatient"], r["per_day"] * days, places=6)
+            self.assertAlmostEqual(r["total"], r["outpatient"] + vc, places=6)
+        py = rep["levels"]["by_key"]["prev_year"]
+        pv = (float(PREV_ROW["外来保険売上"]) + float(PREV_ROW["自費診療売上"])
+              + float(PREV_ROW["物販売上"]))
+        self.assertAlmostEqual(py["per_day"],
+                               pv / float(PREV_ROW["外来診療日数"]), places=6)
+        self.assertNotAlmostEqual(py["per_day"],
+                                  pv / float(PREV_ROW["診療日数"]), places=0)
+
+    def test_level_names_avoid_line_metaphors(self):
+        """月によって上下が逆転しても壊れない名前にする。"""
+        rep = self._rep(targets=[])
+        names = [r["label"] for r in rep["levels"]["display"]]
+        for n in names:
+            self.assertTrue(n.endswith("水準"), n)
+        text = all_text(rep) + " ".join(rep["position"]["lines"])
+        for ng in ("防衛ライン", "挑戦ライン"):
+            self.assertNotIn(ng, text)
+
+    def test_display_is_sorted_by_amount(self):
+        rep = self._rep(targets=[])
+        vals = [r["total"] for r in rep["levels"]["display"]]
+        self.assertEqual(vals, sorted(vals, reverse=True))
+
+    # ---- 判定の分岐 -------------------------------------------------
+    def _verdict(self, target):
+        return self._rep(targets=[{"年月": "2026-08", "経営計画目標": str(target),
+                                   "備考": ""}])["position"]["verdict"]
+
+    def test_verdict_branches(self):
+        rep = self._rep(targets=[])
+        by = rep["levels"]["by_key"]
+        high = by["top_quartile"]["total"]
+        low = by["recent"]["total"]
+        total = rep["facts"]["total"]
+        self.assertGreater(total, high)          # このfixtureは高い月
+        # 目標が着地より上 → 未達だが過去実績から見れば高い
+        self.assertEqual(self._verdict(int(total) + 3_000_000), "miss_but_high")
+        # 目標が着地より下 → 達成、かつ上位水準も超える
+        self.assertEqual(self._verdict(int(low) - 1_000_000), "hit_high")
+
+    def test_miss_and_low_is_reported_as_a_site_gap(self):
+        """目標にも参考水準にも届かない月は、現場側のギャップとして扱う。"""
+        rep = build(make_roll(insurance=9_000_000, selfpay=1_500_000, product=100_000,
+                              insurance_prev=13_393_890, selfpay_prev=8_131_750, product_prev=279_770,
+                              thursday_closed=True),
+                    targets=[{"年月": "2026-08", "経営計画目標": "21500000",
+                              "備考": ""}])
+        self.assertEqual(rep["position"]["verdict"], "miss_and_low")
+        t = " ".join(rep["position"]["lines"])
+        self.assertIn("今月の稼働そのものが過去の通常水準に届いていない", t)
+
+
+# ======================================================================
+class TestDentalPatientValue(unittest.TestCase):
+    """患者価値・来院構造のKPI。分子は歯科診療売上（外来3区分＋訪問保険）。
+
+    以前は 外来3区分 ÷ 総来院回数 という式を使っていたが、分母だけが訪問診療を
+    含むため 1来院あたりで約 -10.7% 過小に出ていた（2025-08 実測）。この式は廃止した。
+    """
+
+    def _rep(self, **kw):
+        base = dict(insurance=15_113_808, selfpay=6_010_211, product=316_528,
+                    insurance_prev=13_393_890, selfpay_prev=8_131_750,
+                    product_prev=279_770, thursday_closed=True)
+        base.update(kw)
+        return build(make_roll(**base), targets=[])
+
+    # ---- 旧定義（案C）が残っていないこと ----------------------------
+    def test_old_formula_is_gone(self):
+        """外来3区分 ÷ 総来院回数 / 総患者数 という式を使っていないこと。"""
+        f = self._rep()["facts"]
+        self.assertNotAlmostEqual(f["per_visit_now"], f["op_now"] / f["visit"], places=2)
+        self.assertNotAlmostEqual(f["per_patient_now"], f["op_now"] / f["patients"],
+                                  places=2)
+
+    def test_outpatient_visits_per_day_is_not_published(self):
+        """外来限定の来院回数が無いので、外来診療日あたり来院回数は出さない。"""
+        f = self._rep()["facts"]
+        self.assertIsNone(f["visits_per_day_now"])
+        self.assertIsNone(f["visits_per_day_prev"])
+        self.assertNotIn("visits_per_day", self._rep()["decomposition"]["by_key"])
+
+    # ---- 分子の中身 --------------------------------------------------
+    def test_numerator_includes_visit_insurance(self):
+        f = self._rep()["facts"]
+        self.assertAlmostEqual(f["dental_now"], f["op_now"] + f["visit_ins"], places=6)
+        self.assertAlmostEqual(f["per_visit_now"], f["dental_now"] / f["visit"],
+                               places=6)
+        self.assertAlmostEqual(f["per_patient_now"], f["dental_now"] / f["patients"],
+                               places=6)
+
+    def test_numerator_excludes_care(self):
+        """介護は分子に入れない（対応する来院回数・患者が存在しないため）。"""
+        f = self._rep()["facts"]
+        self.assertGreater(f["care"], 0)
+        self.assertAlmostEqual(f["dental_now"], f["total"] - f["care"], places=6)
+        self.assertNotAlmostEqual(f["per_visit_now"], f["total"] / f["visit"], places=2)
+        self.assertNotAlmostEqual(f["per_patient_now"], f["total"] / f["patients"],
+                                  places=2)
+
+    def test_prev_year_uses_same_definition(self):
+        f = self._rep()["facts"]
+        pv = (float(PREV_ROW["外来保険売上"]) + float(PREV_ROW["自費診療売上"])
+              + float(PREV_ROW["物販売上"]) + float(PREV_ROW["訪問保険売上"]))
+        self.assertAlmostEqual(f["dental_prev"], pv, places=6)
+        self.assertAlmostEqual(f["per_visit_prev"], pv / f["visit_prev"], places=6)
+        self.assertAlmostEqual(f["per_patient_prev"], pv / f["patients_prev"], places=6)
+
+    # ---- 患者数と来院回数 --------------------------------------------
+    def test_visits_and_patients_are_not_the_same_thing(self):
+        f = self._rep()["facts"]
+        self.assertGreater(f["visit"], f["patients"])
+        self.assertGreater(f["visits_per_patient_now"], 1.0)
+        self.assertAlmostEqual(f["visits_per_patient_now"],
+                               f["visit"] / f["patients"], places=9)
+
+    def test_label_is_unique_patient_visits(self):
+        """『1患者あたり来院回数』という名前は使わない。"""
+        rep = self._rep()
+        self.assertEqual(MR.VISITS_PER_PATIENT_LABEL, "1ユニーク患者あたり来院回数")
+        names = [r["label"] for r in rep["decomposition"]["rows"]]
+        names += [r["name"] for r in rep["capacity"]["rows"]]
+        self.assertIn(MR.VISITS_PER_PATIENT_LABEL, names)
+        for n in names:
+            self.assertNotEqual(n, "1患者あたり来院回数")
+        self.assertNotIn("1患者あたり来院回数", all_text(rep))
+
+    def test_official_labels(self):
+        self.assertEqual(MR.PER_VISIT_LABEL, "1来院あたり売上（外来＋訪問）")
+        self.assertEqual(MR.PER_PATIENT_LABEL, "1ユニーク患者あたり売上（外来＋訪問）")
+
+    # ---- 分解の恒等式 ------------------------------------------------
+    def test_both_decompositions_hold(self):
+        f = self._rep()["facts"]
+        self.assertAlmostEqual(f["dental_now"],
+                               f["visit"] * f["per_visit_now"], places=3)
+        self.assertAlmostEqual(f["dental_now"],
+                               f["patients"] * f["per_patient_now"], places=3)
+        self.assertAlmostEqual(
+            f["per_patient_now"],
+            f["visits_per_patient_now"] * f["per_visit_now"], places=4)
+
+    def test_outpatient_productivity_is_kept_separate(self):
+        """外来生産性は分子も分母も外来のまま、別群として残す。"""
+        rep = self._rep()
+        f = rep["facts"]
+        self.assertAlmostEqual(f["per_day_now"],
+                               f["op_now"] / f["days_month_outpatient"], places=6)
+        by = rep["decomposition"]["by_key"]
+        self.assertIn("per_day", by)
+        self.assertIn("dental", by)
+        self.assertNotEqual(by["per_day"]["how"], by["dental"]["how"])
+        self.assertIn("母集団が違います", rep["decomposition"]["text"])
+
+    # ---- 履歴（前月・直近3か月）--------------------------------------
+    def test_history_series_uses_same_definition(self):
+        rep = self._rep()
+        rows = {r["年月"]: r for r in hist_rows()}
+        for x in rep["facts"]["hist"]["op_per_day"]:
+            r = rows[x["ym"]]
+            want = (r["外来保険売上"] + r["自費診療売上"] + r["物販売上"]
+                    + r["訪問保険売上"])
+            self.assertAlmostEqual(x["dental"], want, places=6)
+            self.assertAlmostEqual(x["per_visit"], want / x["visits"], places=6)
+            self.assertAlmostEqual(x["per_patient"], want / x["patients"], places=6)
+
+    def test_prev_month_and_recent3_are_comparable(self):
+        """前月・直近3か月も同じ定義で並べられること。"""
+        series = self._rep()["facts"]["hist"]["op_per_day"]
+        self.assertGreaterEqual(len(series), 12)
+        for x in series:
+            for k in ("per_visit", "per_patient", "visits_per_patient"):
+                self.assertIsNotNone(x[k], f"{x['ym']} {k}")
+        last3 = series[-3:]
+        self.assertEqual(len(last3), 3)
+        self.assertTrue(all(x["per_visit"] > 0 for x in last3))
+
+    def test_data_note_explains_the_population(self):
+        notes = " ".join(self._rep()["notes"])
+        self.assertIn("歯科診療売上", notes)
+        self.assertIn("介護は対応する来院・患者記録がないため含みません", notes)
+        self.assertIn("同じ母集団", notes)
+
+    def test_not_used_as_a_target(self):
+        rep = self._rep()
+        self.assertIsNone(rep["facts"]["target_sales"])
+        self.assertFalse(rep["target"]["has_target"])
+
+
+# ======================================================================
 class TestModuleInterface(unittest.TestCase):
     """画面側の呼び出しと build_management_report の引数がずれていないこと。
 
@@ -1255,9 +1564,10 @@ class TestModuleInterface(unittest.TestCase):
     def test_signature_accepts_four_positional_arguments(self):
         import inspect
         names = list(inspect.signature(MR.build_management_report).parameters)
-        self.assertEqual(names[:4],
-                         ["roll", "prev_year_row", "prev_forecast_row", "history_rows"])
-        MR.build_management_report({}, None, None, [])      # 画面と同じ4引数
+        self.assertEqual(names[:5],
+                         ["roll", "prev_year_row", "prev_forecast_row", "history_rows",
+                          "target_rows"])
+        MR.build_management_report({}, None, None, [], [])   # 画面と同じ5引数
 
     def test_streamlit_call_matches_signature(self):
         import inspect
@@ -1291,11 +1601,12 @@ class TestModuleInterface(unittest.TestCase):
             args.append(cur)
         args = [a.strip() for a in args if a.strip()]
         params = inspect.signature(MR.build_management_report).parameters
-        self.assertEqual(len(args), 4, args)
+        self.assertEqual(len(args), 5, args)
         self.assertLessEqual(len(args), len(params),
                              f"呼び出し{len(args)}引数 > 定義{len(params)}引数")
-        # history を渡すのをやめてエラーを消す、という直し方をしていないこと
+        # history / 目標を渡すのをやめてエラーを消す、という直し方をしていないこと
         self.assertIn("read_history_rows", inner)
+        self.assertIn("read_target_rows", inner)
 
     def test_app_reloads_the_module(self):
         """Streamlit の sys.modules キャッシュ対策が入っていること。"""
@@ -1309,14 +1620,15 @@ class TestModuleInterface(unittest.TestCase):
             stale = types.ModuleType("mgmt_report")
             stale.__file__ = MR.__file__
             exec("def build_management_report(roll, prev_year_row=None, "
-                 "prev_forecast_row=None):\n    return {}\n", stale.__dict__)
+                 "prev_forecast_row=None, history_rows=None):\n    return {}\n",
+                 stale.__dict__)
             sys.modules["mgmt_report"] = stale
             with self.assertRaises(TypeError):
-                stale.build_management_report({}, None, None, [])
+                stale.build_management_report({}, None, None, [], [])
             fresh = importlib.reload(stale)
-            self.assertIn("history_rows",
+            self.assertIn("target_rows",
                           inspect.signature(fresh.build_management_report).parameters)
-            fresh.build_management_report({}, None, None, [])
+            fresh.build_management_report({}, None, None, [], [])
         finally:
             if saved is not None:
                 sys.modules["mgmt_report"] = saved

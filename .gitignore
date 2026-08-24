@@ -32,7 +32,10 @@ apotool_all_master.csv
 # --- 過去実績ビュー（data/history/）---
 # 既定で全て除外し、安全確認済みのファイルだけを名指しで許可する（default-deny）。
 # scripts/build_history_aggregates.py が生成したもの以外は、置いても push されない。
+# 例外は monthly_targets.csv で、これだけは生成物ではなく人が直接編集する
+# （経営計画目標。scripts/safety_check_cloud_deploy.py が列・型・備考を検査する）。
 data/history/*
+!data/history/monthly_targets.csv
 !data/history/monthly_actuals.csv
 !data/history/history_meta.json
 !data/history/portfolio_monthly.csv

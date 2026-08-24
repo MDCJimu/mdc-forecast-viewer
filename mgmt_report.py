@@ -72,6 +72,115 @@ HIST_OP_SEGMENTS = {
     "product": "物販売上",
 }
 
+# ======================================================================
+# 経営計画目標と参考水準
+#
+# この2つは別物で、画面でも文章でも混ぜない。
+#
+#   経営計画目標  人（院長・法人）が決めた値。monthly_targets.csv だけが正。
+#                 未登録の月は「未設定」であって 0 ではなく、推定もしない。
+#   参考水準      過去実績を今月の外来診療日数に換算した値。目標ではない。
+#
+# 参考水準は「過去にこの生産性で回っていた」という事実の日数換算であって、
+# 体制が何を供給できるかの計算ではない。Dr/DH の人数・勤務時間・シフト・
+# チェア供給能力を Forecast 側が持っていないため、これらを「能力ベース目標」
+# とは呼ばない。
+# ----------------------------------------------------------------------
+# ======================================================================
+# 患者価値・来院構造のKPI（外来＋訪問）
+#
+#   歯科診療売上 = 外来保険 ＋ 自費 ＋ 物販 ＋ 訪問保険
+#
+#   1来院あたり売上（外来＋訪問）        = 歯科診療売上 ÷ 総来院回数
+#   1ユニーク患者あたり売上（外来＋訪問）  = 歯科診療売上 ÷ 総ユニーク患者数
+#   1ユニーク患者あたり来院回数            = 総来院回数 ÷ 総ユニーク患者数
+#
+# なぜ介護を分子に入れないか
+#   介護分シートは日付と単位数しか持たず、患者番号も明細行も無い。つまり介護売上には
+#   対応する来院回数・患者が1件も存在しない。分子に入れると、分母を持たない売上を
+#   患者数で割ることになる（2025-08 なら総売上の 4.5%）。
+#
+# なぜ訪問保険を分子に入れるか
+#   訪問診療はレセコン明細に1行ずつ載っており、総来院回数・総ユニーク患者数の
+#   どちらにも既に数えられている。分母に入っている以上、分子にも入れないと
+#   母集団がずれる。
+#
+#   → 分子・分母とも「患者単位で記録される歯科診療」に揃う。
+#
+# 以前は 外来3区分 ÷ 総来院回数 という式を使っていたが、分母だけが訪問診療を
+# 含むため 1来院あたりで約 -10.7%、1患者あたりで約 -7.0% 過小に出ていた（2025-08 実測）。
+# この式は廃止した。純粋な外来客単価は、外来限定の来院回数・ユニーク患者数を
+# build_foundation_tables.py / build_daily_rolling_forecast.py が持つようになってから
+# 別KPIとして追加する（FUTURE_OUTPATIENT_KPI を参照）。
+#
+# 患者数と来院回数は別物で、同じ患者が月内に3回来れば
+#   総来院回数        3
+#   総ユニーク患者数  1
+# と数える。したがって
+#   1ユニーク患者あたり売上 ＝ 1ユニーク患者あたり来院回数 × 1来院あたり売上
+# となり、「患者が少ない」のか「来院頻度が低い」のかを分けられる。
+# 「（外来＋訪問）」と書く。「歯科診療全体」だと介護を含む医院全体の総売上と
+# 読まれかねないため、分子に何が入っているかをそのまま名前にする。
+DENTAL_SUFFIX = "（外来＋訪問）"
+PER_VISIT_LABEL = "1来院あたり売上" + DENTAL_SUFFIX
+PER_PATIENT_LABEL = "1ユニーク患者あたり売上" + DENTAL_SUFFIX
+VISITS_PER_PATIENT_LABEL = "1ユニーク患者あたり来院回数"
+DENTAL_SALES_LABEL = "歯科診療売上"
+DENTAL_SALES_HOW = "外来保険＋自費＋物販＋訪問保険"
+# 介護を外した理由は毎回そえる。読み手が「介護が抜けている」と誤解しないため。
+DENTAL_SALES_WHY = "介護は対応する来院・患者記録がないため含みません"
+
+# 将来、外来限定の来院回数・ユニーク患者数が入ったら追加する正式KPI（設計メモ）。
+#
+#   外来1来院あたり売上           = 外来3区分売上 ÷ 外来来院回数
+#   外来1ユニーク患者あたり売上     = 外来3区分売上 ÷ 外来ユニーク患者数
+#   外来診療日あたり外来来院回数    = 外来来院回数 ÷ 外来診療日数
+#   外来1ユニーク患者あたり来院回数 = 外来来院回数 ÷ 外来ユニーク患者数
+#
+# 必要な前提（今回は変更していない）
+#   build_foundation_tables.py        日次に 外来来院回数 / 外来実患者数 を追加する。
+#                                     レセコン明細の「訪問診療」フラグで数え分けられる。
+#   build_daily_rolling_forecast.py   当月実績と月末見込みの外来限定版を出力する。
+#   monthly_actuals_source.py         月次に同じ2列を追加する。
+#
+# 制約：元レセコンは 2024-01 以降しか raw/ に無く、それ以前の49か月は外来限定の
+# 来院回数・患者数を再構築できない（日次マスタに訪問の内訳が無いため）。
+# 前年同月・前月・直近3か月・直近12か月はすべて 2024-01 以降に収まるので、
+# 比較指標としては成立する。
+FUTURE_OUTPATIENT_KPI = (
+    "外来1来院あたり売上", "外来1ユニーク患者あたり売上",
+    "外来診療日あたり外来来院回数", "外来1ユニーク患者あたり来院回数")
+
+TARGETS_FILE = "monthly_targets.csv"
+TARGET_COL_MONTH = "年月"
+TARGET_COL_VALUE = "経営計画目標"
+TARGET_COL_NOTE = "備考"
+
+# 画面へ並べる参考水準。すべて「○○水準」で統一する。
+# 「防衛ライン」「挑戦ライン」のような上下関係を含意する名前は使わない
+# （目標より参考水準が上に来る月があり、その月に名前の意味が壊れるため）。
+LEVEL_MAIN = ("prev_year", "recent")        # 基本表示
+LEVEL_SUB = ("top_quartile", "best")        # 補助表示
+LEVEL_INTERNAL = ("prev_month", "recent6", "median12")   # 分析内部のみ
+LEVEL_LABELS = {
+    "prev_year": "前年同月水準",
+    "recent": "直近実力水準",
+    "top_quartile": "過去上位水準",
+    "best": "過去最高水準",
+    "prev_month": "前月水準",
+    "recent6": "直近6か月水準",
+    "median12": "12か月中央水準",
+}
+LEVEL_HOW = {
+    "prev_year": "前年同月の外来診療日あたり売上",
+    "recent": "直近3か月の外来診療日あたり売上の平均",
+    "top_quartile": "直近12か月の外来診療日あたり売上の上位25%",
+    "best": "直近12か月で最も高かった外来診療日あたり売上",
+    "prev_month": "前月の外来診療日あたり売上",
+    "recent6": "直近6か月の外来診療日あたり売上の平均",
+    "median12": "直近12か月の外来診療日あたり売上の中央値",
+}
+
 # ---- 判定のしきい値（金額はすべて円）--------------------------------------
 MATERIAL_YEN = 300_000      # これ未満の差は「ほぼ前年並み」として扱う
 MATERIAL_RATE = 0.01        # 前年比1%未満も同様（大きい項目で金額だけ見ると誤判定するため）
@@ -251,6 +360,42 @@ def _level(st, v):
     return "中位"
 
 
+def read_monthly_targets(history_dir):
+    """monthly_targets.csv を読む。[{年月, 経営計画目標, 備考}]
+
+    経営計画目標の single source of truth はこのファイルだけ。
+    ファイルが無い・空・壊れているときは空リストを返し、目標は「未設定」になる。
+    値を推定して埋めることは絶対にしない（過去実績から作った数字は目標ではない）。
+    """
+    import csv
+    import io as _io
+    import os as _os
+    try:
+        with _io.open(_os.path.join(history_dir, TARGETS_FILE),
+                      encoding="utf-8-sig", newline="") as fh:
+            return [r for r in csv.DictReader(fh)
+                    if (r.get(TARGET_COL_MONTH) or "").strip()]
+    except Exception:
+        return []
+
+
+def target_for(ym, target_rows):
+    """対象月の経営計画目標。登録が無ければ None（0 ではない）。
+
+    戻り値 {"amount": int, "note": str} / None
+    空欄・0・負値・数値でない値は「未設定」として扱う。目標は人が入れた
+    正の金額だけを認め、それ以外を勝手に解釈しない。
+    """
+    for r in (target_rows or []):
+        if (r.get(TARGET_COL_MONTH) or "").strip() != ym:
+            continue
+        v = f_(r.get(TARGET_COL_VALUE))
+        if v is None or v <= 0:
+            return None
+        return {"amount": int(v), "note": (r.get(TARGET_COL_NOTE) or "").strip()}
+    return None
+
+
 def _history(target_ym, history_rows):
     """対象月より前の直近12か月ぶんの分布を区分ごとに作る。"""
     rows = [r for r in (history_rows or [])
@@ -280,16 +425,29 @@ def _history(target_ym, history_rows):
         od = f_(r.get(HIST_OUTPATIENT_DAYS_COL))
         op = _sum(f_(r.get("外来保険売上")), f_(r.get("自費診療売上")),
                   f_(r.get("物販売上")))
+        vis = f_(r.get("総来院回数"))
+        pat = f_(r.get("総患者数"))
+        # 歯科診療売上＝外来3区分＋訪問保険。介護は患者単位の記録が無いので入れない。
+        dental = _sum(op, f_(r.get("訪問保険売上")))
         op_per_day.append({
             "ym": r["年月"], "op": op, "days": od, "basis": HIST_OP_DAYS_BASIS,
             "per_day": _div(op, od),
             "segments": {k: _div(f_(r.get(col)), od)
                          for k, col in HIST_OP_SEGMENTS.items()},
+            # 患者価値の分解は歯科診療売上（外来3区分＋訪問保険）で行う。
+            # 総来院回数・総ユニーク患者数は訪問診療の患者を含むので、分子側も揃える。
+            "dental": dental,
+            "visits": vis, "patients": pat,
+            "visits_per_patient": _div(vis, pat),
+            "per_visit": _div(dental, vis),
+            "per_patient": _div(dental, pat),
         })
     op_ok = [x for x in op_per_day if x["per_day"] is not None]
     stats["op_per_day"] = _stats([x["per_day"] for x in op_ok])
     for k in HIST_OP_SEGMENTS:
         stats[f"op_{k}_per_day"] = _stats([x["segments"][k] for x in op_ok])
+    for k in ("per_visit", "per_patient", "visits_per_patient"):
+        stats[f"op_{k}"] = _stats([x[k] for x in op_per_day])
 
     return {"available": True, "months": [r["年月"] for r in rows],
             "stats": stats, "per_day": per_day, "days_basis": HIST_DAYS_BASIS,
@@ -311,8 +469,10 @@ def _shift_year(ym):
         return None
 
 
-def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
+def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None,
+           target_rows=None):
     roll = roll or {}
+    target = target_for(roll.get("target_month"), target_rows)
     py = prev_year_row or {}
     sup = roll.get("supplementary") or {}
     prog = roll.get("progress_through_yesterday") or {}
@@ -337,6 +497,12 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
     # 訪問・介護だけ売上が立った日は含まれない。古いスナップショットには無いので None。
     d_out_act = f_(roll.get("outpatient_actual_days_count"))
     d_out_month = f_(roll.get("outpatient_month_days_count"))
+    # 残りの外来診療予定日。古いスナップショットには無いので、その場合だけ
+    # 従来の remaining_days_count で代替する（どちらも「これからの診療予定日」で
+    # 同じ日の集合を数えており、訪問・介護だけの日は元から入っていない）。
+    d_out_rem = f_(roll.get("outpatient_remaining_days_count"))
+    if d_out_rem is None:
+        d_out_rem = f_(roll.get("remaining_days_count"))
     days_elapsed = _sum(d_act, d_unrec)
     # 履歴の「診療日数」は売上発生日数（訪問・介護だけの日を含む）。
     # 外来3区分の分子と割り算すると基準が食い違うので、総売上ベースにだけ使う。
@@ -352,6 +518,10 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
     # 「1日あたり」「1来院あたり」の比較にはこの3区分だけを使う（前年と同じ土俵にするため）。
     op_now = _sum(outp, selfpay, product)
     op_prev = _sum(pyv("外来保険売上"), pyv("自費診療売上"), pyv("物販売上"))
+    # 歯科診療売上＝外来3区分＋訪問保険。患者単位で記録される売上だけを集めたもので、
+    # 総来院回数・総ユニーク患者数と同じ母集団になる（介護は記録が無いため除く）。
+    dental_now = _sum(op_now, f_(roll.get("visit_insurance_forecast")))
+    dental_prev = _sum(op_prev, pyv("訪問保険売上"))
 
     vis = sup.get("visit") or {}
     sho = sup.get("shoshin") or {}
@@ -400,8 +570,10 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
                                        if (selfpay is not None and prev_fc_selfpay is not None) else None),
         "prev_forecast_ins_diff": ((insurance - prev_fc_ins)
                                    if (insurance is not None and prev_fc_ins is not None) else None),
-        # 目標は現在どのデータにも入っていない。入ってきたら自動で使う（推測では作らない）。
-        "target_sales": f_(roll.get("monthly_sales_target")),
+        # 経営計画目標。正は monthly_targets.csv だけで、スナップショット側には持たない
+        # （同じ意味の値を2か所で管理しないため）。未登録なら None のまま＝「未設定」。
+        "target_sales": (target["amount"] if target else None),
+        "target_note": (target["note"] if target else ""),
 
         # --- B. 売上構成 ---
         "insurance": insurance,
@@ -468,8 +640,23 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
         "product_per_day_prev": _div(pyv("物販売上"), days_prev_out),
         # 売上発生日あたり総売上（分子は全区分・前年のみ算出可能）
         "rev_day_per_day_prev": _div(pyv("月間総売上"), days_prev),
-        "per_visit_now": _div(op_now, visit_now),
-        "per_visit_prev": _div(op_prev, visit_prev),
+        # 患者価値・来院構造のKPI。分子は歯科診療売上（外来3区分＋訪問保険）で、
+        # 総来院回数・総ユニーク患者数と同じ母集団に揃えてある。介護は分子に入れない。
+        "dental_now": dental_now,
+        "dental_prev": dental_prev,
+        "per_visit_now": _div(dental_now, visit_now),
+        "per_visit_prev": _div(dental_prev, visit_prev),
+        "per_patient_now": _div(dental_now, pat_now),
+        "per_patient_prev": _div(dental_prev, pat_prev),
+        # 患者1人が月に何回来ているか。1ユニーク患者あたり売上を
+        # 「来院頻度」と「1回あたり」に割るのに使う。
+        "visits_per_patient_now": _div(visit_now, pat_now),
+        "visits_per_patient_prev": _div(visit_prev, pat_prev),
+        # 外来診療日あたりの来院回数は出さない。来院回数は訪問診療を含む一方、
+        # 外来診療日数は外来だけの日数なので、割ると母集団が食い違う。
+        # 外来限定の来院回数が入ったら FUTURE_OUTPATIENT_KPI として追加する。
+        "visits_per_day_now": None,
+        "visits_per_day_prev": None,
         # 来院回数は訪問診療の患者も含むため、外来診療日数で割ると基準が食い違う。
         # 同一定義の分母を用意できないので日割りしない（件数のまま前年と比べる）。
         "visit_per_day_now": None,
@@ -493,6 +680,11 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None):
 
         "actual_to_date": actual_td,
         "remaining_forecast": remaining,
+        # 経過したが売上がまだ入っていない日の推定額。確定実績とも残り見込みとも別枠で、
+        # 目標までの残り必要額を出すときに二重計上しないよう、ここで名前を付けて持つ。
+        "unrecorded_total": f_(roll.get("elapsed_unrecorded_total")),
+        # これから診療する外来診療日。目標の必要ペースは必ずこれで割る。
+        "days_remaining_outpatient": d_out_rem,
         # 今月ここまでの1日あたり。分子は外来3区分なので外来診療日数で割る。
         "per_day_done": _div(actual_td, d_out_act),
         "per_day_needed": _div(remaining, d_rem),
@@ -917,13 +1109,20 @@ def _capacity(f):
                          "rate": rate(f["days_month_outpatient"],
                                       f["days_prev_outpatient"]),
                          "kind": "月末見込み／前年は月末実績"})
-    d_vis = add("来院回数", f["visit"], f["visit_prev"],
+    d_vis = add("総来院回数", f["visit"], f["visit_prev"],
                 lambda v: cnt(v, "回"), lambda v: scnt(v, "回"))
     d_vpd = None
-    d_pv = add("1来院あたり売上（外来保険＋自費＋物販）", f["per_visit_now"], f["per_visit_prev"],
+    d_pv = add(PER_VISIT_LABEL, f["per_visit_now"], f["per_visit_prev"],
                lambda v: cnt(v, "円"), lambda v: scnt(v, "円"))
-    d_pat = add("患者数", f["patients"], f["patients_prev"],
+    # 同じ患者が月内に何回来ても1人。来院回数と混同しないよう名前を分ける。
+    d_pat = add("総ユニーク患者数", f["patients"], f["patients_prev"],
                 lambda v: cnt(v, "人"), lambda v: scnt(v, "人"))
+    d_ppat = add(PER_PATIENT_LABEL,
+                 f["per_patient_now"], f["per_patient_prev"],
+                 lambda v: cnt(v, "円"), lambda v: scnt(v, "円"))
+    d_vpp = add(VISITS_PER_PATIENT_LABEL, f["visits_per_patient_now"],
+                f["visits_per_patient_prev"],
+                lambda v: f"{v:.2f}回", lambda v: f"{v:+.2f}回")
     d_sho = add("初診", f["shoshin"], f["shoshin_prev"],
                 lambda v: cnt(v, "件"), lambda v: scnt(v, "件"))
 
@@ -1039,7 +1238,7 @@ def _capacity(f):
                      f"{scnt(d_vis, '回')}（{pct(rate(f['visit'], f['visit_prev']))}）"
                      f"{_updown(d_vis)}見込みです。")
     if per_visit_dn and volume_up:
-        parts.append(f"一方で1来院あたりの売上は見込みで{cnt(f['per_visit_now'], '円')}となり、前年実績"
+        parts.append(f"一方で{PER_VISIT_LABEL}は見込みで{cnt(f['per_visit_now'], '円')}となり、前年実績"
                      f"{cnt(f['per_visit_prev'], '円')}を"
                      f"{pct(rate(f['per_visit_now'], f['per_visit_prev']))}下回る計算です。"
                      "来院は増える一方で、1回あたりの単価は下がる見込みです。")
@@ -1061,6 +1260,355 @@ def _capacity(f):
             "days_diff": d_days, "visit_diff": d_vis, "shoshin_diff": d_sho,
             "patient_diff": d_pat, "cancel_diff": d_can,
             "per_day_diff": d_pd, "per_visit_diff": d_pv}
+
+
+# ======================================================================
+# 4.4 売上の2つの分解（どこに原因があるかを切り分けるための土台）
+# ======================================================================
+def _decompose(f):
+    """外来3区分の売上を、診療日ベースと患者数ベースの2通りに分解する。
+
+        診療日ベース   外来診療日あたり売上 ＝ 1日あたり来院回数 × 1来院あたり売上
+        患者数ベース   外来3区分売上       ＝ ユニーク患者数 × 1ユニーク患者あたり売上
+                       1ユニーク患者あたり売上 ＝ 1患者あたり来院回数 × 1来院あたり売上
+
+    この2本があると、前年との差が
+        患者数が足りない / 来院頻度が低い / 1回あたりが低い / 1患者あたりが低い
+    のどれなのかを分けて見られる。ここでは数字を並べるところまでで、
+    打ち手には踏み込まない。
+
+    どちらの分解も分子は外来3区分だけで、訪問保険・介護は入れない。
+    """
+    rows = []
+
+    def add(key, label, now, prev, unit, how):
+        if now is None and prev is None:
+            return
+        d = (now - prev) if (now is not None and prev is not None) else None
+        rows.append({"key": key, "label": label, "now": now, "prev": prev,
+                     "diff": d,
+                     "rate": rate(now, prev) if (now is not None and prev) else None,
+                     "unit": unit, "how": how})
+
+    # --- 外来生産性（分子も分母も外来だけ）---
+    add("op", "外来3区分売上", f["op_now"], f["op_prev"], "円",
+        "外来保険＋自費＋物販")
+    add("per_day", "外来診療日あたり売上", f["per_day_now"], f["per_day_prev"], "円",
+        "外来3区分売上 ÷ 外来診療日数")
+    # --- 患者価値・来院構造（分子も分母も外来＋訪問）---
+    add("dental", DENTAL_SALES_LABEL, f["dental_now"], f["dental_prev"], "円",
+        DENTAL_SALES_HOW)
+    add("visits", "総来院回数", f["visit"], f["visit_prev"], "回",
+        "レセコン明細の行数（外来＋訪問診療。介護は行を持たない）")
+    add("patients", "総ユニーク患者数", f["patients"], f["patients_prev"], "人",
+        "月内に1回でも受診した実人数（同じ患者は何回来ても1人）")
+    add("per_visit", PER_VISIT_LABEL, f["per_visit_now"], f["per_visit_prev"], "円",
+        f"{DENTAL_SALES_LABEL} ÷ 総来院回数")
+    add("per_patient", PER_PATIENT_LABEL,
+        f["per_patient_now"], f["per_patient_prev"], "円",
+        f"{DENTAL_SALES_LABEL} ÷ 総ユニーク患者数")
+    add("visits_per_patient", VISITS_PER_PATIENT_LABEL,
+        f["visits_per_patient_now"], f["visits_per_patient_prev"], "回",
+        "総来院回数 ÷ 総ユニーク患者数")
+
+    by = {r["key"]: r for r in rows}
+    parts = []
+    pv, pp = by.get("per_visit"), by.get("per_patient")
+    vis, pat = by.get("visits"), by.get("patients")
+    vpp = by.get("visits_per_patient")
+
+    if vis and pv:
+        parts.append(
+            f"{DENTAL_SALES_LABEL}{yen_man(f['dental_now'])}は、"
+            f"総来院{cnt(f['visit'], '回')}×"
+            f"{PER_VISIT_LABEL}{cnt(f['per_visit_now'], '円')}に分解できます。"
+            f"{DENTAL_SALES_LABEL}は{DENTAL_SALES_HOW}で、{DENTAL_SALES_WHY}。")
+    if pat and pp:
+        parts.append(
+            f"同じ{DENTAL_SALES_LABEL}は、総ユニーク患者{cnt(f['patients'], '人')}×"
+            f"{PER_PATIENT_LABEL}{cnt(f['per_patient_now'], '円')}という組み立てでもあります。")
+    if vpp and pv and f["visits_per_patient_now"]:
+        parts.append(
+            f"{VISITS_PER_PATIENT_LABEL}は{f['visits_per_patient_now']:.2f}回で、"
+            f"{PER_PATIENT_LABEL}はこの来院頻度と{PER_VISIT_LABEL}の積になります。")
+
+    # 前年差がどの要素から来ているか。金額の大小ではなく、上がった/下がったを並べる。
+    moved = [r for r in (pat, vpp, pv, pp) if r and r["rate"] is not None]
+    if moved:
+        seg = "、".join(f"{r['label']}{pct(r['rate'])}" for r in moved)
+        parts.append(f"前年同月比では{seg}です。")
+    if by.get("per_day"):
+        parts.append(
+            f"なお外来診療日あたり売上{yen_man(f['per_day_now'])}は分子も分母も外来だけで、"
+            "上の患者価値の指標（訪問診療を含む）とは母集団が違います。並べて掛け算しません。")
+    return {"available": bool(rows), "rows": rows, "by_key": by,
+            "text": "".join(parts)}
+
+
+# ======================================================================
+# 4.5 参考水準（過去実績を今月の外来診療日数に換算した値。目標ではない）
+# ======================================================================
+def _levels(f):
+    """参考水準を組み立てる。
+
+    どの水準も式は同じで、使う「外来診療日あたり売上」が違うだけ。
+
+        外来3区分の換算額 = 基準となる外来診療日あたり売上 × 今月の外来診療日数
+        総売上の参考額     = 上記 ＋ 今月の訪問保険見込み ＋ 今月の介護見込み
+
+    分子は外来3区分（外来保険＋自費＋物販）、分母は外来診療日数。
+    診療日数（訪問・介護だけ売上が立った日も数える）は分母に使わない。
+
+    訪問保険・介護は外来の生産性とは連動しないので、水準ごとに変えず同じ
+    見込み額を足すだけにする。外来生産性と総売上を混ぜないよう、どちらも
+    別々に持って返す。
+    """
+    days = f["days_month_outpatient"]
+    hist = f.get("hist") or {}
+    series = [x for x in (hist.get("op_per_day") or []) if x["per_day"]]
+    vc = _sum(f["visit_ins"], f["care"])
+
+    per_day = {}
+    if f["days_prev_outpatient"] and f["per_day_prev"] is not None:
+        per_day["prev_year"] = f["per_day_prev"]
+    if series:
+        vals = [x["per_day"] for x in series]
+        per_day["prev_month"] = vals[-1]
+        if len(vals) >= 3:
+            per_day["recent"] = sum(vals[-3:]) / 3
+        if len(vals) >= 6:
+            per_day["recent6"] = sum(vals[-6:]) / 6
+        if len(vals) >= 4 and hist.get("op_available"):
+            sv = sorted(vals)
+            per_day["median12"] = _quantile(sv, 0.5)
+            per_day["top_quartile"] = _quantile(sv, 0.75)
+            per_day["best"] = sv[-1]
+
+    rows = []
+    for key in LEVEL_MAIN + LEVEL_SUB + LEVEL_INTERNAL:
+        v = per_day.get(key)
+        if v is None or not days:
+            continue
+        op = v * days
+        rows.append({
+            "key": key, "label": LEVEL_LABELS[key], "how": LEVEL_HOW[key],
+            "per_day": v, "outpatient": op, "visit_care": vc,
+            "total": _sum(op, vc),
+            "main": key in LEVEL_MAIN, "sub": key in LEVEL_SUB,
+        })
+    by = {r["key"]: r for r in rows}
+    return {
+        "available": bool(rows), "rows": rows, "by_key": by,
+        "days": days, "visit_care": vc,
+        "main": [by[k] for k in LEVEL_MAIN if k in by],
+        "sub": [by[k] for k in LEVEL_SUB if k in by],
+        # 画面に並べるのは main + sub だけ。internal は分析の内部でだけ使う。
+        # 並びは金額の降順で、月によって上下が入れ替わっても意味が壊れない。
+        "display": sorted([by[k] for k in LEVEL_MAIN + LEVEL_SUB if k in by],
+                          key=lambda r: -(r["total"] or 0)),
+    }
+
+
+# ======================================================================
+# 4.6 経営計画目標との距離と、達成に必要な残りペース
+# ======================================================================
+def _target_view(f, levels):
+    """目標が登録されているときだけ、目標差と必要ペースを組み立てる。
+
+    残り必要額の式（重複計上しないための取り決め）
+
+        経営計画目標（総売上）
+          − 訪問保険見込み − 介護見込み   … 外来3区分以外を先に外す
+          − 確定実績（外来3区分）         … actual_to_date_total
+          − 経過したが売上未反映の推定     … elapsed_unrecorded_total
+        ＝ 残り必要額（これから診療する日で作る必要がある外来3区分）
+
+    スナップショットでは
+
+        actual_to_date_total + elapsed_unrecorded_total + remaining_forecast_total
+        = 外来3区分の月末見込み
+
+    が成り立ち、訪問保険・介護はこの3つのどれにも入っていない。したがって
+    上の順に引けば、同じ金額を二度引くことはない。
+
+    1日あたりは必ず「これから診療する外来診療日数」で割る（暦日では割らない）。
+    """
+    total = f["total"]
+    tgt = f["target_sales"]
+    view = {"has_target": tgt is not None, "target": tgt,
+            "note": f.get("target_note") or "", "total": total,
+            "levels": levels, "pace": None,
+            "diff": None, "rate": None, "achieved": None}
+    if tgt is None or total is None:
+        return view
+    view["diff"] = total - tgt
+    view["rate"] = (total / tgt) if tgt else None
+    view["achieved"] = total >= tgt
+
+    vc = _sum(f["visit_ins"], f["care"])
+    done = f["actual_to_date"]
+    unrec = f["unrecorded_total"]
+    drem = f["days_remaining_outpatient"]
+    if None in (vc, done, unrec) or not drem:
+        return view
+    need = tgt - vc - done - unrec
+    cur_rest = f["remaining_forecast"]
+    view["pace"] = {
+        "visit_care": vc, "done": done, "unrecorded": unrec,
+        "need_total": need, "days_remaining": drem,
+        "need_per_day": need / drem,
+        "current_per_day": (cur_rest / drem) if cur_rest is not None else None,
+        "gap_per_day": ((need - cur_rest) / drem) if cur_rest is not None else None,
+        "current_rest": cur_rest,
+    }
+    return view
+
+
+# ======================================================================
+# 4.7 経営の現在地（目標・予測・参考水準の関係を1本の文章にする）
+# ======================================================================
+def _above(total, row):
+    """着地見込みがその参考水準を上回っているか。判定できなければ None。"""
+    if total is None or row is None or row.get("total") is None:
+        return None
+    return total >= row["total"]
+
+
+def _position(f, target, levels):
+    """目標・着地見込み・参考水準の位置関係を文章にする。
+
+    目標が未設定のときは「未設定」と明示したうえで、参考水準のどこにいるかだけを
+    述べる。達成・未達は目標がなければ判定できないので、絶対に書かない。
+
+    目標があるときは、目標との差だけで結論を出さない。目標に届かなくても過去実績を
+    大きく上回っていれば、現場の低調ではなく目標設定の水準の問題でありうる。
+    逆に目標にも参考水準にも届かないなら、現場側のギャップとして扱う。
+    この2つを取り違えると打ち手の向き先を間違えるため、必ず両方を見て分岐する。
+    """
+    total = f["total"]
+    by = (levels or {}).get("by_key") or {}
+    py, rc = by.get("prev_year"), by.get("recent")
+    tq, bs = by.get("top_quartile"), by.get("best")
+    out = {"has_target": bool(target and target.get("has_target")),
+           "lines": [], "verdict": None}
+
+    if total is None:
+        out["lines"].append("着地見込みが読めないため、現在地を判定していません。")
+        return out
+
+    # --- 参考水準に対する位置 ------------------------------------------
+    beaten = [r for r in (levels or {}).get("display", []) if _above(total, r)]
+    below = [r for r in (levels or {}).get("display", []) if _above(total, r) is False]
+
+    def vs(row):
+        d = total - row["total"]
+        return (f"{row['label']}{yen_man(row['total'])}を"
+                f"{yen_man(abs(d))}{_updown(d)}")
+
+    # --- 目標が未設定 ---------------------------------------------------
+    if not out["has_target"]:
+        out["lines"].append("経営計画目標は未設定です。")
+        if not levels or not levels.get("display"):
+            out["lines"].append(
+                f"着地見込みは{yen_man(total)}です。"
+                "比較できる参考水準がまだ作れていないため、水準の評価は出していません。")
+            return out
+        if len(beaten) == len(levels["display"]):
+            out["verdict"] = "above_all"
+            out["lines"].append(
+                f"現在の着地見込み{yen_man(total)}は、"
+                + "、".join(r["label"] + yen_man(r["total"])
+                            for r in levels["display"])
+                + "のいずれも上回る見込みです。過去実績から見ると高い水準です。")
+        elif not beaten:
+            out["verdict"] = "below_all"
+            out["lines"].append(
+                f"現在の着地見込み{yen_man(total)}は、"
+                + "、".join(r["label"] + yen_man(r["total"])
+                            for r in levels["display"])
+                + "のいずれも下回る見込みです。過去実績から見ると低い水準です。")
+        else:
+            out["verdict"] = "middle"
+            out["lines"].append(
+                f"現在の着地見込み{yen_man(total)}は、"
+                + "、".join(vs(r) for r in beaten) + "一方で、"
+                + "、".join(vs(r) for r in below) + "見込みです。")
+        out["lines"].append(
+            "経営計画目標が未設定のため、目標達成・未達の判定は行っていません。")
+        return out
+
+    # --- 目標がある -----------------------------------------------------
+    tgt, diff, rate = target["target"], target["diff"], target["rate"]
+    hit = target["achieved"]
+    out["lines"].append(
+        f"経営計画目標{yen_man(tgt)}に対し、着地見込みは{yen_man(total)}で"
+        f"{yen_sman(diff)}"
+        + (f"（達成見込み{rate * 100:.1f}%）です。" if rate is not None else "です。"))
+
+    high_ref = tq or bs or py            # 「高い」と言える根拠に使う水準
+    low_ref = rc or py                   # 「低い」と言える根拠に使う水準
+    over_high = _above(total, high_ref)
+    over_low = _above(total, low_ref)
+
+    if hit:
+        if over_high:
+            out["verdict"] = "hit_high"
+            out["lines"].append(
+                f"目標を上回り、{high_ref['label']}{yen_man(high_ref['total'])}も"
+                "超える見込みです。過去実績から見ても高い水準で着地する見込みです。")
+        elif over_low is False:
+            out["verdict"] = "hit_low_bar"
+            out["lines"].append(
+                f"目標は上回る見込みですが、{low_ref['label']}"
+                f"{yen_man(low_ref['total'])}は下回ります。"
+                "目標が直近の実力水準より低く置かれている可能性があります。")
+        else:
+            out["verdict"] = "hit"
+            out["lines"].append(
+                f"目標を上回り、{low_ref['label']}{yen_man(low_ref['total'])}も"
+                "上回る見込みです。")
+    else:
+        if over_high:
+            out["verdict"] = "miss_but_high"
+            out["lines"].append(
+                f"計画目標には届かない見込みですが、{high_ref['label']}"
+                f"{yen_man(high_ref['total'])}を上回っており、過去実績から見ると"
+                "非常に高い水準です。現場の低調というより、計画目標が過去実績を"
+                "上回る設定になっている可能性があります。")
+        elif over_low is False:
+            out["verdict"] = "miss_and_low"
+            out["lines"].append(
+                f"計画目標に届かないだけでなく、{low_ref['label']}"
+                f"{yen_man(low_ref['total'])}も下回る見込みです。"
+                "目標設定の問題ではなく、今月の稼働そのものが過去の通常水準に"
+                "届いていない状態として扱います。")
+        else:
+            out["verdict"] = "miss"
+            out["lines"].append(
+                f"計画目標には届かない見込みですが、{low_ref['label']}"
+                f"{yen_man(low_ref['total'])}は上回っています。"
+                "過去の通常水準は保てており、目標との差は上振れ分の未達です。")
+
+    # --- 残りペース ------------------------------------------------------
+    pace = target.get("pace")
+    if pace and pace["days_remaining"]:
+        out["lines"].append(
+            f"目標までの残り必要額は{yen_man(pace['need_total'])}です"
+            f"（目標{yen_man(tgt)}から、訪問保険と介護の見込み"
+            f"{yen_man(pace['visit_care'])}、確定実績{yen_man(pace['done'])}、"
+            f"売上がまだ入っていない{yen_man(pace['unrecorded'])}を差し引いた額）。"
+            f"これから診療する{cnt(pace['days_remaining'], '日')}で作るには、"
+            f"1外来診療日あたり{yen_man(pace['need_per_day'])}が必要です。")
+        if pace["current_per_day"] is not None:
+            g = pace["gap_per_day"]
+            out["lines"].append(
+                f"現在の予測が置いている残りペースは1日あたり"
+                f"{yen_man(pace['current_per_day'])}で、必要ペースを"
+                f"{yen_man(abs(g))}{_updown(-g)}計算です。"
+                if g else
+                f"現在の予測が置いている残りペースは1日あたり"
+                f"{yen_man(pace['current_per_day'])}で、必要ペースと同水準です。")
+    return out
 
 
 # ======================================================================
@@ -1789,7 +2337,19 @@ def _data_notes(f):
         notes.append("前年同月の月次実績が読めないため、外来・訪問・介護の内訳と、"
                      "1日あたり・1来院あたりの前年比較は出していません。")
     if f["target_sales"] is None:
-        notes.append("売上目標がデータに登録されていないため、目標との差は表示していません。")
+        notes.append("経営計画目標が monthly_targets.csv に登録されていないため、"
+                     "目標との差と、目標達成に必要な残りペースは表示していません。"
+                     "画面に出ている参考水準は過去実績を今月の外来診療日数に換算した値で、"
+                     "目標ではありません。")
+    if f["per_patient_now"] is not None or f["per_visit_now"] is not None:
+        notes.append(f"{PER_VISIT_LABEL}と{PER_PATIENT_LABEL}の分子は"
+                     f"{DENTAL_SALES_LABEL}（{DENTAL_SALES_HOW}）です。"
+                     f"{DENTAL_SALES_WHY}。"
+                     "分母の総来院回数・総ユニーク患者数も訪問診療を含むので、"
+                     "分子と分母は同じ母集団になっています。"
+                     "外来だけに絞った1来院あたり・1ユニーク患者あたりは、"
+                     "外来限定の来院回数・患者数を月次実績が持つようになってから"
+                     "別の指標として追加します。")
     hv = _hv_range(f)
     if not hv["available"]:
         if hv["reason"] == "zero":
@@ -1811,8 +2371,11 @@ def _data_notes(f):
 # 入口
 # ======================================================================
 def build_management_report(roll, prev_year_row=None, prev_forecast_row=None,
-                            history_rows=None):
-    f = _facts(roll, prev_year_row, prev_forecast_row, history_rows)
+                            history_rows=None, target_rows=None):
+    f = _facts(roll, prev_year_row, prev_forecast_row, history_rows, target_rows)
+    levels = _levels(f)
+    target = _target_view(f, levels)
+    decomp = _decompose(f)
     comps = _components(f)
     cause = _yoy_cause(f, comps)
     cap = _capacity(f)
@@ -1822,6 +2385,10 @@ def build_management_report(roll, prev_year_row=None, prev_forecast_row=None,
     return {
         "next_month_actions": later,
         "trend": _productivity_trend(f),
+        "levels": levels,
+        "target": target,
+        "decomposition": decomp,
+        "position": _position(f, target, levels),
         "facts": f,
         "components": comps,
         "conclusion": _conclusion(f, comps, cause, cap),
