@@ -109,9 +109,7 @@ HIST_OP_SEGMENTS = {
 #
 # 以前は 外来3区分 ÷ 総来院回数 という式を使っていたが、分母だけが訪問診療を
 # 含むため 1来院あたりで約 -10.7%、1患者あたりで約 -7.0% 過小に出ていた（2025-08 実測）。
-# この式は廃止した。純粋な外来客単価は、外来限定の来院回数・ユニーク患者数を
-# build_foundation_tables.py / build_daily_rolling_forecast.py が持つようになってから
-# 別KPIとして追加する（FUTURE_OUTPATIENT_KPI を参照）。
+# この式は廃止した。純粋な外来客単価は OUTPATIENT_KPI として別に持つ（下）。
 #
 # 患者数と来院回数は別物で、同じ患者が月内に3回来れば
 #   総来院回数        3
@@ -130,26 +128,54 @@ DENTAL_SALES_HOW = "外来保険＋自費＋物販＋訪問保険"
 # 介護を外した理由は毎回そえる。読み手が「介護が抜けている」と誤解しないため。
 DENTAL_SALES_WHY = "介護は対応する来院・患者記録がないため含みません"
 
-# 将来、外来限定の来院回数・ユニーク患者数が入ったら追加する正式KPI（設計メモ）。
+# ======================================================================
+# 純外来の患者価値・生産性KPI（訪問診療を含まない）
 #
-#   外来1来院あたり売上           = 外来3区分売上 ÷ 外来来院回数
+# 上の（外来＋訪問）KPIとは母集団が違う。同じ画面に並ぶので、名前の頭に必ず
+# 「外来」を付けて呼び分ける。掛け算でつながるのは同じ群の中だけ。
+#
+#   外来3区分売上                   = 外来保険 ＋ 自費 ＋ 物販
+#   外来1来院あたり売上             = 外来3区分売上 ÷ 外来来院回数
 #   外来1ユニーク患者あたり売上     = 外来3区分売上 ÷ 外来ユニーク患者数
 #   外来診療日あたり外来来院回数    = 外来来院回数 ÷ 外来診療日数
 #   外来1ユニーク患者あたり来院回数 = 外来来院回数 ÷ 外来ユニーク患者数
 #
-# 必要な前提（今回は変更していない）
-#   build_foundation_tables.py        日次に 外来来院回数 / 外来実患者数 を追加する。
-#                                     レセコン明細の「訪問診療」フラグで数え分けられる。
-#   build_daily_rolling_forecast.py   当月実績と月末見込みの外来限定版を出力する。
-#   monthly_actuals_source.py         月次に同じ2列を追加する。
+# 分子・分母とも訪問診療を含まない。外来来院回数＝訪問診療≠1 の明細行数、
+# 外来ユニーク患者数＝その明細に出る患者番号を対象期間全体で重複排除した人数で、
+# build_daily_rolling_forecast.py が元レセコンから数えてスナップショットへ入れる。
 #
-# 制約：元レセコンは 2024-01 以降しか raw/ に無く、それ以前の49か月は外来限定の
-# 来院回数・患者数を再構築できない（日次マスタに訪問の内訳が無いため）。
-# 前年同月・前月・直近3か月・直近12か月はすべて 2024-01 以降に収まるので、
-# 比較指標としては成立する。
-FUTURE_OUTPATIENT_KPI = (
-    "外来1来院あたり売上", "外来1ユニーク患者あたり売上",
-    "外来診療日あたり外来来院回数", "外来1ユニーク患者あたり来院回数")
+# 確定実績だけで作る。月末見込みは作らない。
+#   外来来院回数・外来ユニーク患者数に月末見込みが無いため、作れば分子だけ
+#   見込み・分母だけ実績という比較になる。実測どうしで比べる方を残す。
+#
+# 前年比較は「前年の月初から当年と同じ外来診療日数まで」の累計と比べる。
+# 外来診療日数が一致しない月は比較を出さない（outpatient_days_match）。
+#
+# 制約：元レセコンは 2024-01 以降しか raw/ に無いため、それ以前の月には
+# 外来来院回数・外来ユニーク患者数が無い。前年同月はこの範囲に収まるので
+# 前年比較は成立するが、古いスナップショットには2つのキーが無く、その場合は
+# 「取得不可」として何も推定しない。
+OP_SALES_LABEL = "外来3区分売上"
+OP_SALES_HOW = "外来保険＋自費＋物販"
+OP_VISITS_LABEL = "外来来院回数"
+OP_PATIENTS_LABEL = "外来ユニーク患者数"
+OP_PER_VISIT_LABEL = "外来1来院あたり売上"
+OP_PER_PATIENT_LABEL = "外来1ユニーク患者あたり売上"
+OP_VISITS_PER_DAY_LABEL = "外来診療日あたり外来来院回数"
+OP_VISITS_PER_PATIENT_LABEL = "外来1ユニーク患者あたり来院回数"
+OP_SALES_PER_DAY_LABEL = "外来診療日あたり売上"
+
+# 画面のメイン3本。ここだけで「単価が落ちたのか、人が来ていないのか」が読める。
+OUTPATIENT_KPI_MAIN = (OP_PER_VISIT_LABEL, OP_PER_PATIENT_LABEL,
+                       OP_VISITS_PER_DAY_LABEL)
+# 折りたたみに置く詳細。メインの数字を作っている素の値と、派生の2本。
+OUTPATIENT_KPI_DETAIL = (OP_SALES_LABEL, OP_VISITS_LABEL, OP_PATIENTS_LABEL,
+                         OP_VISITS_PER_PATIENT_LABEL, OP_SALES_PER_DAY_LABEL)
+OUTPATIENT_KPI = OUTPATIENT_KPI_MAIN + OUTPATIENT_KPI_DETAIL
+
+# 純外来KPIは確定実績どうしの比較なので、月末見込みの但し書きを付けない。
+# 代わりに「何日ぶんの実績か」を必ず添える。
+OP_KIND = "確定実績／前年は同じ外来診療日数まで累計した実績"
 
 TARGETS_FILE = "monthly_targets.csv"
 TARGET_COL_MONTH = "年月"
@@ -652,9 +678,9 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None,
         # 「来院頻度」と「1回あたり」に割るのに使う。
         "visits_per_patient_now": _div(visit_now, pat_now),
         "visits_per_patient_prev": _div(visit_prev, pat_prev),
-        # 外来診療日あたりの来院回数は出さない。来院回数は訪問診療を含む一方、
-        # 外来診療日数は外来だけの日数なので、割ると母集団が食い違う。
-        # 外来限定の来院回数が入ったら FUTURE_OUTPATIENT_KPI として追加する。
+        # 外来診療日あたりの来院回数は、この（外来＋訪問）の群では出さない。
+        # 総来院回数は訪問診療を含む一方、外来診療日数は外来だけの日数なので、
+        # 割ると母集団が食い違う。純外来版は OUTPATIENT_KPI の方に持つ。
         "visits_per_day_now": None,
         "visits_per_day_prev": None,
         # 来院回数は訪問診療の患者も含むため、外来診療日数で割ると基準が食い違う。
@@ -711,6 +737,12 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None,
         "obs_prev_outpatient": f_(o_biz.get("insurance_outpatient")),
         "obs_prev_selfpay": f_(o_biz.get("selfpay")),
         "obs_prev_product": f_(o_biz.get("product")),
+        # 純外来の分母（訪問診療を含まない実測）。元レセコンの明細から数えた値で、
+        # 月末見込みは存在しない。古いスナップショットには無いので None のまま。
+        "obs_op_visits": f_(roll.get("outpatient_visit_actual_to_date")),
+        "obs_op_patients": f_(roll.get("outpatient_unique_patients_actual_to_date")),
+        "obs_prev_op_visits": f_(o_biz.get("outpatient_visit_count")),
+        "obs_prev_op_patients": f_(o_biz.get("outpatient_unique_patient_count")),
         "obs_diff": None,
         "obs_rate": None,
         "obs_bizdays_raw_diff": f_(o_biz.get("diff_vs_current")),
@@ -805,6 +837,35 @@ def _facts(roll, prev_year_row=None, prev_forecast_row=None, history_rows=None,
         f["op_rate_total"] = None
         for k in ("outpatient", "selfpay", "product"):
             f[f"op_prev_{k}_per_day"] = None
+
+    # --- 純外来の患者価値・生産性（確定実績のみ）-----------------------
+    # 分子は外来3区分の確定実績（obs_total）、分母は訪問診療を含まない
+    # 外来来院回数・外来ユニーク患者数。月末見込みは作らない。
+    _opv, _opp = f["obs_op_visits"], f["obs_op_patients"]
+    _ppv, _ppp = f["obs_prev_op_visits"], f["obs_prev_op_patients"]
+    f["has_outpatient_counts"] = (_opv is not None and _opp is not None)
+    # 前年比較を出してよいかの判定。外来3区分の比較（outpatient_days_match）と
+    # 同じ条件に、前年側の2つの件数がそろっていることを足す。日数が一致しない月は
+    # 累計の土俵が違うので、率も差も出さない。
+    f["outpatient_value_comparable"] = bool(
+        f["has_outpatient_counts"] and f["outpatient_days_match"]
+        and _ppv is not None and _ppp is not None)
+    f["op_sales_now"] = f["obs_total"] if f["has_outpatient_counts"] else None
+    f["op_per_visit_now"] = _div(f["obs_total"], _opv)
+    f["op_per_patient_now"] = _div(f["obs_total"], _opp)
+    f["op_visits_per_day_now"] = _div(_opv, d_out_act)
+    f["op_visits_per_patient_now"] = _div(_opv, _opp)
+    if f["outpatient_value_comparable"]:
+        _pod2 = f["obs_prev_outpatient_days"]
+        f["op_sales_prev"] = f["obs_prev_total"]
+        f["op_per_visit_prev"] = _div(f["obs_prev_total"], _ppv)
+        f["op_per_patient_prev"] = _div(f["obs_prev_total"], _ppp)
+        f["op_visits_per_day_prev"] = _div(_ppv, _pod2)
+        f["op_visits_per_patient_prev"] = _div(_ppv, _ppp)
+    else:
+        for _k in ("op_sales_prev", "op_per_visit_prev", "op_per_patient_prev",
+                   "op_visits_per_day_prev", "op_visits_per_patient_prev"):
+            f[_k] = None
 
     # 直近12か月の分布（A-1 / A-4 / A-6）
     f["hist"] = _history(f["target_month"], history_rows)
@@ -1260,6 +1321,159 @@ def _capacity(f):
             "days_diff": d_days, "visit_diff": d_vis, "shoshin_diff": d_sho,
             "patient_diff": d_pat, "cancel_diff": d_can,
             "per_day_diff": d_pd, "per_visit_diff": d_pv}
+
+
+# ======================================================================
+# 4.5 純外来の患者価値・生産性（訪問診療を含まない・確定実績のみ）
+# ======================================================================
+# 原因を「単価」と「量」に分けて読むための群。上の（外来＋訪問）KPIとは
+# 母集団が違うので、必ず別の表として出す（同じ表に混ぜると掛け算が合わない）。
+#
+# 前年比較は「前年の月初から当年と同じ外来診療日数まで」の累計とだけ行う。
+# 日数がそろわない月は、率も差も出さずに理由を書く。
+# 月末見込みは作らない（外来来院回数・外来ユニーク患者数に見込みが無いため）。
+
+# 何が原因かまでは、この画面のデータでは決められない。決めつけないための定型文。
+OP_CAUSE_UNKNOWN = (
+    "保険処置の構成・自費の比率・メンテナンスの比率・診療内容のどれが効いているかは、"
+    "この画面のデータでは判別できません。レセコンの処置内容まで見て切り分けてください。")
+
+
+def _outpatient_value(f):
+    """純外来の患者価値・生産性。確定実績どうしの比較だけを作る。"""
+    nd = f["days_actual_outpatient"]
+    pnd = f["obs_prev_outpatient_days"]
+    ok = f["has_outpatient_counts"]
+    cmpable = f["outpatient_value_comparable"]
+    out = {
+        "available": ok, "comparable": cmpable, "reason": "",
+        "days": nd, "prev_days": pnd, "cutoff": f["obs_cutoff"],
+        "kind": OP_KIND,
+        # 見出しに出す但し書き。何日ぶんの実績を何と比べているかを必ず添える。
+        "scope": (f"確定実績 {cnt(nd, '外来診療日')}" if nd is not None else "確定実績"),
+        "compare_scope": (f"前年同じ {cnt(pnd, '外来診療日')}と比較" if cmpable else ""),
+        "main": [], "detail": [], "rows": [], "text": "",
+    }
+    if not ok:
+        out["reason"] = "no_counts"
+        out["text"] = ("このスナップショットには外来来院回数・外来ユニーク患者数が"
+                       "入っていないため、外来だけに絞った患者価値・生産性は"
+                       "出していません。次の日次更新から表示されます。")
+        return out
+    if not cmpable:
+        out["reason"] = ("no_prev_counts" if f["outpatient_days_match"]
+                         else "days_mismatch")
+
+    def row(name, now, prev, fmt, sfmt, group, how):
+        d = ((now - prev) if (now is not None and prev is not None) else None)
+        r = {"name": name,
+             "now": (fmt(now) if now is not None else "取得不可"),
+             "prev": (fmt(prev) if prev is not None else "—"),
+             "diff": (sfmt(d) if d is not None else "—"),
+             "diff_raw": (d if d is not None else 0),
+             "rate": rate(now, prev), "kind": OP_KIND,
+             "group": group, "how": how}
+        out[group].append(r)
+        out["rows"].append(r)
+        return r
+
+    def _yen(v):
+        return cnt(v, "円")
+
+    def _syen(v):
+        return scnt(v, "円")
+
+    def _times(v):
+        return f"{v:.2f}回"
+
+    def _stimes(v):
+        return f"{v:+.2f}回"
+
+    # --- メイン3本 ---
+    row(OP_PER_VISIT_LABEL, f["op_per_visit_now"], f["op_per_visit_prev"],
+        _yen, _syen, "main", f"{OP_SALES_LABEL} ÷ {OP_VISITS_LABEL}")
+    row(OP_PER_PATIENT_LABEL, f["op_per_patient_now"], f["op_per_patient_prev"],
+        _yen, _syen, "main", f"{OP_SALES_LABEL} ÷ {OP_PATIENTS_LABEL}")
+    row(OP_VISITS_PER_DAY_LABEL, f["op_visits_per_day_now"],
+        f["op_visits_per_day_prev"], _times, _stimes, "main",
+        f"{OP_VISITS_LABEL} ÷ 外来診療日数")
+    # --- 詳細（メインの数字を作っている素の値と、派生2本）---
+    row(OP_SALES_LABEL, f["op_sales_now"], f["op_sales_prev"],
+        yen_man, yen_sman, "detail", OP_SALES_HOW)
+    row(OP_VISITS_LABEL, f["obs_op_visits"],
+        (f["obs_prev_op_visits"] if cmpable else None),
+        lambda v: cnt(v, "回"), lambda v: scnt(v, "回"), "detail",
+        "訪問診療を含まない来院回数（延べ）")
+    row(OP_PATIENTS_LABEL, f["obs_op_patients"],
+        (f["obs_prev_op_patients"] if cmpable else None),
+        lambda v: cnt(v, "人"), lambda v: scnt(v, "人"), "detail",
+        "訪問診療を含まない実人数（期間内で重複排除）")
+    row(OP_VISITS_PER_PATIENT_LABEL, f["op_visits_per_patient_now"],
+        f["op_visits_per_patient_prev"], _times, _stimes, "detail",
+        f"{OP_VISITS_LABEL} ÷ {OP_PATIENTS_LABEL}")
+    row(OP_SALES_PER_DAY_LABEL, f["op_per_day_actual"],
+        (f["op_per_day_prev"] if cmpable else None), yen_man, yen_sman, "detail",
+        f"{OP_SALES_LABEL} ÷ 外来診療日数")
+
+    # --- 文章 ---
+    parts = [f"{f['obs_cutoff']}までの外来診療{cnt(nd, '日')}の確定実績で見ると、"
+             f"{OP_SALES_LABEL}{yen_man(f['op_sales_now'])}を、"
+             f"{OP_VISITS_LABEL}{cnt(f['obs_op_visits'], '回')}・"
+             f"{OP_PATIENTS_LABEL}{cnt(f['obs_op_patients'], '人')}が作っています。"
+             f"{OP_PER_VISIT_LABEL}は{_yen(f['op_per_visit_now'])}、"
+             f"{OP_PER_PATIENT_LABEL}は{_yen(f['op_per_patient_now'])}です。"
+             f"どちらも訪問診療を含みません（分子は{OP_SALES_HOW}）。"]
+    if not cmpable:
+        parts.append("前年との比較は出していません。"
+                     + ("前年側の外来来院回数・外来ユニーク患者数が"
+                        "スナップショットに入っていないためです。"
+                        if out["reason"] == "no_prev_counts" else
+                        "前年側の外来診療日数が当年と一致せず、"
+                        "同じ日数まで累計した比較にならないためです。"))
+        out["text"] = "".join(parts)
+        return out
+
+    parts.append(f"前年も月初から同じ外来診療{cnt(pnd, '日')}まで累計すると、"
+                 f"{OP_VISITS_LABEL}{cnt(f['obs_prev_op_visits'], '回')}・"
+                 f"{OP_PATIENTS_LABEL}{cnt(f['obs_prev_op_patients'], '人')}で、"
+                 f"{OP_PER_VISIT_LABEL}は{_yen(f['op_per_visit_prev'])}でした。")
+
+    # 量（来院がどれだけあったか）と単価（1回でいくら作れたか）を分けて読む。
+    TH = DENSITY_ALERT * 100
+    vol = [(OP_VISITS_LABEL, rate(f["obs_op_visits"], f["obs_prev_op_visits"])),
+           (OP_PATIENTS_LABEL, rate(f["obs_op_patients"], f["obs_prev_op_patients"])),
+           (OP_VISITS_PER_DAY_LABEL, rate(f["op_visits_per_day_now"],
+                                          f["op_visits_per_day_prev"])),
+           (OP_VISITS_PER_PATIENT_LABEL, rate(f["op_visits_per_patient_now"],
+                                              f["op_visits_per_patient_prev"]))]
+    r_pv = rate(f["op_per_visit_now"], f["op_per_visit_prev"])
+    parts.append("前年比は" + "、".join(f"{n}{pct(r)}" for n, r in vol if r is not None)
+                 + f"、{OP_PER_VISIT_LABEL}{pct(r_pv)}です。")
+    down = [n for n, r in vol if r is not None and r < -TH]
+    kept = [n for n, r in vol if r is not None and r >= -TH]
+    unit_dn = (r_pv is not None and r_pv < -TH)
+    if unit_dn and not down:
+        # 量はどれも落ちていないのに単価だけが落ちている＝原因は1回あたり。
+        parts.append(f"{'・'.join(kept)}はいずれも前年を下回っていません。"
+                     f"下がっているのは{OP_PER_VISIT_LABEL}だけです。"
+                     "つまりこの期間の差は、患者数の不足でも、"
+                     "1日あたり来院数の不足でも、来院頻度の低下でもなく、"
+                     "1回の来院あたりの売上が下がっていることによります。")
+        parts.append(OP_CAUSE_UNKNOWN)
+    elif unit_dn:
+        parts.append(f"{'・'.join(down)}が前年を下回り、{OP_PER_VISIT_LABEL}も"
+                     "下がっています。来院の量と1回あたりの売上の両方が"
+                     "この期間の差を作っているため、片方だけの対策では戻りません。")
+        parts.append(OP_CAUSE_UNKNOWN)
+    elif down:
+        parts.append(f"{OP_PER_VISIT_LABEL}は前年並み以上で、"
+                     f"{'・'.join(down)}が前年を下回っています。"
+                     "1回あたりの売上ではなく、来院の量がこの期間の差を作っています。")
+    else:
+        parts.append("来院の量・1回の来院あたりの売上とも前年を下回っておらず、"
+                     "この期間の純外来には前年に対する落ち込みは見えません。")
+    out["text"] = "".join(parts)
+    return out
 
 
 # ======================================================================
@@ -2444,8 +2658,16 @@ def _data_notes(f):
                      "分母の総来院回数・総ユニーク患者数も訪問診療を含むので、"
                      "分子と分母は同じ母集団になっています。"
                      "外来だけに絞った1来院あたり・1ユニーク患者あたりは、"
-                     "外来限定の来院回数・患者数を月次実績が持つようになってから"
-                     "別の指標として追加します。")
+                     f"{OP_PER_VISIT_LABEL}・{OP_PER_PATIENT_LABEL}として"
+                     "別の表に出しています。")
+    if f["has_outpatient_counts"]:
+        notes.append(f"{OP_VISITS_LABEL}・{OP_PATIENTS_LABEL}は、"
+                     "元レセコンの明細から訪問診療を除いて数えた確定実績です"
+                     f"（{OP_PATIENTS_LABEL}は期間全体で重複排除した実人数で、"
+                     "日ごとの人数を足した値ではありません）。"
+                     "この2つには月末見込みが無いため、外来だけに絞った"
+                     "患者価値・生産性は確定実績どうしの比較だけを出しており、"
+                     "月末見込みは作っていません。")
     hv = _hv_range(f)
     if not hv["available"]:
         if hv["reason"] == "zero":
@@ -2475,6 +2697,7 @@ def build_management_report(roll, prev_year_row=None, prev_forecast_row=None,
     comps = _components(f)
     cause = _yoy_cause(f, comps)
     cap = _capacity(f)
+    opv = _outpatient_value(f)
     stru = _structure(f, cap)
     spv = _selfpay_view(f, comps)
     actions, later = _actions(f, comps, cause, cap, stru, spv)
@@ -2491,6 +2714,9 @@ def build_management_report(roll, prev_year_row=None, prev_forecast_row=None,
         "conclusion": _conclusion(f, comps, cause, cap),
         "cause": cause,
         "capacity": cap,
+        # 純外来（訪問診療を含まない）の患者価値・生産性。capacity とは母集団が
+        # 違うので、同じ表に混ぜず別のキーで持つ。
+        "outpatient_value": opv,
         "structure": stru,
         "selfpay": spv,
         "focus": _focus(f, actions),

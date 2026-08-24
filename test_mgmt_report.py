@@ -39,7 +39,10 @@ def make_roll(insurance, selfpay, product,
               pyd_days=15, pyd_outp=7_264_860, pyd_jihi=5_585_250, pyd_buppin=185_990,
               out_days=12, with_outpatient_days=True,
               py_biz_out_days=12, with_prev_outpatient_days=True,
-              pyb_outp=6_453_630, pyb_jihi=5_244_250, pyb_buppin=180_560):
+              pyb_outp=6_453_630, pyb_jihi=5_244_250, pyb_buppin=180_560,
+              op_visits=915, op_patients=649,
+              pyb_op_visits=798, pyb_op_patients=589,
+              with_outpatient_counts=True, with_prev_outpatient_counts=True):
     total = insurance + selfpay + product
     prev_total = insurance_prev + selfpay_prev + product_prev
     if outpatient is None:
@@ -86,6 +89,10 @@ def make_roll(insurance, selfpay, product,
             "outpatient_remaining_days_count": days_remaining,
             "outpatient_month_days_count": out_days + days_unrec + days_remaining}
            if with_outpatient_days else {}),
+        # 純外来の分母（訪問診療を含まない確定実績）。月末見込みは存在しない。
+        **({"outpatient_visit_actual_to_date": op_visits,
+            "outpatient_unique_patients_actual_to_date": op_patients}
+           if with_outpatient_counts else {}),
         "actual_to_date_total": actual_to_date,
         "remaining_forecast_total": remaining_forecast,
         # 実スナップショットでは
@@ -114,7 +121,10 @@ def make_roll(insurance, selfpay, product,
                 "diff_vs_current": obs_total - obs_prev_total, "rate": obs_prev_rate,
                 **({"outpatient_days_count": py_biz_out_days,
                     "insurance_outpatient": pyb_outp, "selfpay": pyb_jihi,
-                    "product": pyb_buppin} if with_prev_outpatient_days else {})},
+                    "product": pyb_buppin} if with_prev_outpatient_days else {}),
+                **({"outpatient_visit_count": pyb_op_visits,
+                    "outpatient_unique_patient_count": pyb_op_patients}
+                   if with_prev_outpatient_counts else {})},
         },
         "supplementary": {
             "visit": {"available": True, "forecast": visit, "prevyear": visit_prev,
@@ -206,6 +216,7 @@ def all_text(rep):
     parts = list(rep["conclusion"])
     parts.append(rep["cause"]["text"])
     parts.append(rep["capacity"]["text"])
+    parts.append((rep.get("outpatient_value") or {}).get("text", ""))
     parts.append(rep["focus"])
     if rep["structure"]:
         parts.append(rep["structure"]["text"])
@@ -1632,6 +1643,340 @@ class TestModuleInterface(unittest.TestCase):
         finally:
             if saved is not None:
                 sys.modules["mgmt_report"] = saved
+
+
+# ======================================================================
+class TestOutpatientValue(unittest.TestCase):
+    """純外来の患者価値・生産性（訪問診療を含まない・確定実績のみ）。
+
+    ここで守ること
+      1. 分子は外来3区分、分母は訪問診療を含まない来院回数・ユニーク患者数
+      2. 前年比較は外来診療日数が一致したときだけ出す
+      3. 月末見込みは作らない
+      4. 「単価が落ちた」と「人が来ていない」を取り違えない
+      5. 何が単価を下げたのかまでは断定しない
+    """
+
+    # 2026-08-24 スナップショットの実測値。ここを変えるときは実データで確かめる。
+    REAL = dict(obs_total=11_491_330, obs_outp=8_237_160, obs_jihi=3_036_000,
+                obs_buppin=218_170, out_days=13,
+                obs_prev_total=12_876_640, py_biz_out_days=13,
+                pyb_outp=7_106_750, pyb_jihi=5_585_250, pyb_buppin=184_640,
+                op_visits=915, op_patients=649,
+                pyb_op_visits=798, pyb_op_patients=589)
+
+    def _rep(self, **kw):
+        base = dict(self.REAL)
+        base.update(kw)
+        return build(make_roll(15_113_808, 6_010_211, 316_528,
+                               13_393_890, 8_131_750, 279_770, **base))
+
+    def _by_name(self, rep):
+        return {r["name"]: r for r in rep["outpatient_value"]["rows"]}
+
+    # ---- 1. 数え方 --------------------------------------------------
+    def test_numerator_is_outpatient_three_segments(self):
+        """分子は外来保険＋自費＋物販。訪問保険・介護は入れない。"""
+        f = self._rep()["facts"]
+        self.assertEqual(f["op_sales_now"], self.REAL["obs_total"])
+        self.assertAlmostEqual(
+            f["op_per_visit_now"],
+            self.REAL["obs_total"] / self.REAL["op_visits"], places=6)
+        self.assertAlmostEqual(
+            f["op_per_patient_now"],
+            self.REAL["obs_total"] / self.REAL["op_patients"], places=6)
+
+    def test_denominator_excludes_home_visits(self):
+        """分母は訪問を含まない外来来院回数。総来院回数で割っていない。"""
+        f = self._rep(visit=1500, visit_prev=1450)["facts"]
+        self.assertNotAlmostEqual(f["op_per_visit_now"],
+                                  self.REAL["obs_total"] / 1500, places=0)
+        # （外来＋訪問）の指標とは別物であることも確かめる
+        self.assertNotAlmostEqual(f["op_per_visit_now"], f["per_visit_now"], places=0)
+
+    def test_visits_per_day_uses_outpatient_days(self):
+        f = self._rep()["facts"]
+        self.assertAlmostEqual(f["op_visits_per_day_now"], 915 / 13, places=6)
+        # 売上発生日（14日）で割っていない
+        self.assertNotAlmostEqual(f["op_visits_per_day_now"], 915 / 14, places=1)
+
+    def test_visits_per_patient_is_visits_over_patients(self):
+        f = self._rep()["facts"]
+        self.assertAlmostEqual(f["op_visits_per_patient_now"], 915 / 649, places=6)
+
+    # ---- 2. 2026-08 の正式値 ----------------------------------------
+    def test_august_2026_main_three(self):
+        """メイン3本の表示値と前年比を固定する。"""
+        n = self._by_name(self._rep())
+        want = {
+            MR.OP_PER_VISIT_LABEL: ("12,559円", "16,136円", -22.2),
+            MR.OP_PER_PATIENT_LABEL: ("17,706円", "21,862円", -19.0),
+            MR.OP_VISITS_PER_DAY_LABEL: ("70.38回", "61.38回", 14.7),
+        }
+        for name, (now, prev, rt) in want.items():
+            r = n[name]
+            self.assertEqual(r["now"], now, name)
+            self.assertEqual(r["prev"], prev, name)
+            self.assertAlmostEqual(r["rate"], rt, delta=0.05, msg=name)
+
+    def test_august_2026_detail(self):
+        """詳細（折りたたみ）側の値と前年比を固定する。"""
+        n = self._by_name(self._rep())
+        self.assertEqual(n[MR.OP_VISITS_LABEL]["now"], "915回")
+        self.assertEqual(n[MR.OP_VISITS_LABEL]["prev"], "798回")
+        self.assertAlmostEqual(n[MR.OP_VISITS_LABEL]["rate"], 14.7, delta=0.05)
+        self.assertEqual(n[MR.OP_PATIENTS_LABEL]["now"], "649人")
+        self.assertEqual(n[MR.OP_PATIENTS_LABEL]["prev"], "589人")
+        self.assertAlmostEqual(n[MR.OP_PATIENTS_LABEL]["rate"], 10.2, delta=0.05)
+        r = n[MR.OP_VISITS_PER_PATIENT_LABEL]
+        self.assertEqual((r["now"], r["prev"]), ("1.41回", "1.35回"))
+        self.assertAlmostEqual(r["rate"], 4.1, delta=0.05)
+        self.assertEqual(n[MR.OP_SALES_LABEL]["now"], "1,149万円")
+        self.assertEqual(n[MR.OP_SALES_LABEL]["prev"], "1,288万円")
+
+    def test_main_and_detail_split_matches_the_spec(self):
+        ov = self._rep()["outpatient_value"]
+        self.assertEqual([r["name"] for r in ov["main"]],
+                         list(MR.OUTPATIENT_KPI_MAIN))
+        self.assertEqual([r["name"] for r in ov["detail"]],
+                         list(MR.OUTPATIENT_KPI_DETAIL))
+        self.assertEqual(len(ov["rows"]), len(set(r["name"] for r in ov["rows"])))
+
+    def test_scope_states_outpatient_days_on_both_sides(self):
+        ov = self._rep()["outpatient_value"]
+        self.assertEqual(ov["scope"], "確定実績 13外来診療日")
+        self.assertEqual(ov["compare_scope"], "前年同じ 13外来診療日と比較")
+
+    # ---- 3. 月末見込みを作らない ------------------------------------
+    def test_no_month_end_forecast_anywhere(self):
+        """純外来KPIに月末見込みの行・値を作らない。"""
+        rep = self._rep()
+        ov = rep["outpatient_value"]
+        for r in ov["rows"]:
+            self.assertNotIn("見込み", r["kind"], r["name"])
+            self.assertNotIn("見込み", r["name"])
+        self.assertIn("確定実績", ov["kind"])
+        # facts 側にも「純外来の月末見込み」を表す名前を作っていない
+        for k in rep["facts"]:
+            if k.startswith("op_") and k.endswith("_forecast"):
+                self.fail(f"純外来の月末見込みキーがある: {k}")
+
+    def test_report_says_no_month_end_forecast(self):
+        note = "\n".join(self._rep()["notes"])
+        self.assertIn("月末見込みは作っていません", note)
+
+    # ---- 4. 比較を出してよいかの判定 --------------------------------
+    def test_no_comparison_when_outpatient_days_differ(self):
+        """外来診療日数が一致しない月は率も差も出さない。"""
+        ov = self._rep(py_biz_out_days=12)["outpatient_value"]
+        self.assertFalse(ov["comparable"])
+        self.assertEqual(ov["reason"], "days_mismatch")
+        for r in ov["rows"]:
+            self.assertEqual(r["prev"], "—", r["name"])
+            self.assertEqual(r["diff"], "—", r["name"])
+            self.assertIsNone(r["rate"], r["name"])
+        self.assertIn("同じ日数まで累計した比較にならない", ov["text"])
+        self.assertNotIn("%", ov["text"])
+
+    def test_no_comparison_when_prev_counts_missing(self):
+        """前年側の件数が無いスナップショットでは比較を出さない。"""
+        ov = self._rep(with_prev_outpatient_counts=False)["outpatient_value"]
+        self.assertTrue(ov["available"])
+        self.assertFalse(ov["comparable"])
+        self.assertEqual(ov["reason"], "no_prev_counts")
+        self.assertIn("外来ユニーク患者数が", ov["text"])
+
+    def test_old_snapshot_without_counts_degrades(self):
+        """2つのキーが無い古いスナップショットでも落ちず、推定もしない。"""
+        rep = self._rep(with_outpatient_counts=False)
+        ov = rep["outpatient_value"]
+        self.assertFalse(ov["available"])
+        self.assertEqual(ov["rows"], [])
+        self.assertIn("入っていない", ov["text"])
+        f = rep["facts"]
+        for k in ("op_per_visit_now", "op_per_patient_now",
+                  "op_visits_per_day_now", "op_visits_per_patient_now"):
+            self.assertIsNone(f[k], k)
+
+    def test_zero_counts_are_not_treated_as_missing(self):
+        """0件は「未取得」ではない。0で割らず、値も捏造しない。"""
+        rep = self._rep(op_visits=0, op_patients=0)
+        self.assertTrue(rep["outpatient_value"]["available"])
+        self.assertIsNone(rep["facts"]["op_per_visit_now"])
+
+    # ---- 5. 経営分析（主因の切り分け）--------------------------------
+    def test_unit_price_is_named_as_the_difference(self):
+        """量が落ちていないのに単価が落ちている月は、単価を主因として書く。"""
+        txt = self._rep()["outpatient_value"]["text"]
+        self.assertIn("1回の来院あたりの売上が下がっている", txt)
+        self.assertIn("患者数の不足でも、1日あたり来院数の不足でも、"
+                      "来院頻度の低下でもなく", txt)
+
+    def test_does_not_blame_a_specific_treatment_mix(self):
+        """保険処置構成・自費比率・メンテ比率・診療内容のどれかを主因と断定しない。"""
+        txt = self._rep()["outpatient_value"]["text"]
+        self.assertIn("この画面のデータでは判別できません", txt)
+        for w in ("保険処置の構成", "自費の比率", "メンテナンス", "診療内容"):
+            self.assertIn(w, txt)
+        for bad in ("自費が減ったため", "メンテナンスが減ったため",
+                    "保険処置の構成が変わったため", "が原因です"):
+            self.assertNotIn(bad, txt)
+
+    def test_volume_drop_is_named_when_volume_actually_drops(self):
+        """来院が落ちている月は、単価ではなく量の方を主因として書く。"""
+        txt = self._rep(op_visits=650, op_patients=520,
+                        obs_total=11_000_000)["outpatient_value"]["text"]
+        self.assertIn("来院の量", txt)
+        self.assertNotIn("患者数の不足でも", txt)
+
+    def test_no_decline_claim_when_nothing_declines(self):
+        txt = self._rep(obs_total=16_000_000)["outpatient_value"]["text"]
+        self.assertIn("前年を下回っておらず", txt)
+
+    def test_direction_words_match_the_signs(self):
+        """『下回っていません』と書いた指標が、実際にマイナスでないこと。"""
+        ov = self._rep()["outpatient_value"]
+        n = {r["name"]: r for r in ov["rows"]}
+        if "いずれも前年を下回っていません" in ov["text"]:
+            for name in (MR.OP_VISITS_LABEL, MR.OP_PATIENTS_LABEL,
+                         MR.OP_VISITS_PER_DAY_LABEL,
+                         MR.OP_VISITS_PER_PATIENT_LABEL):
+                self.assertGreater(n[name]["rate"], -MR.DENSITY_ALERT * 100, name)
+
+    # ---- 6. 既存KPIと混ぜない ---------------------------------------
+    def test_kept_separate_from_the_visit_inclusive_kpi(self):
+        """（外来＋訪問）の表に純外来の指標が混ざらない。逆も同じ。"""
+        rep = self._rep()
+        cap_names = {r["name"] for r in rep["capacity"]["rows"]}
+        opv_names = {r["name"] for r in rep["outpatient_value"]["rows"]}
+        self.assertEqual(cap_names & opv_names, set())
+        for n in opv_names:
+            self.assertTrue(n.startswith("外来"), n)
+
+    def test_visit_inclusive_kpi_is_unchanged(self):
+        """純外来KPIを足しても、既存の（外来＋訪問）の値は動かない。"""
+        with_ = self._rep()["facts"]
+        without = self._rep(with_outpatient_counts=False,
+                            with_prev_outpatient_counts=False)["facts"]
+        for k in ("per_visit_now", "per_visit_prev", "per_patient_now",
+                  "per_patient_prev", "visits_per_patient_now",
+                  "op_per_day_actual", "op_per_day_prev", "op_diff_total",
+                  "total", "yoy", "op_now", "op_prev"):
+            self.assertEqual(with_[k], without[k], k)
+
+
+# ======================================================================
+class TestOutpatientValueOnRealSnapshot(unittest.TestCase):
+    """本番スナップショット（outputs/daily_rolling_forecast.json）での実値。
+
+    公開前の生成物を直接読む。まだ cloud_deploy へ配布していない段階でも、
+    実データで組み立てた結果が仕様どおりかをここで確かめる。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        import csv
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(os.path.dirname(here), "outputs",
+                            "daily_rolling_forecast.json")
+        if not os.path.isfile(path):
+            raise unittest.SkipTest("outputs/daily_rolling_forecast.json が無い")
+        with io.open(path, encoding="utf-8") as fh:
+            cls.roll = json.load(fh)
+        if cls.roll.get("target_month") != "2026-08":
+            raise unittest.SkipTest("対象月が 2026-08 ではない")
+        hp = os.path.join(here, "data", "history", "monthly_actuals.csv")
+        with io.open(hp, encoding="utf-8-sig", newline="") as fh:
+            cls.hist = [r for r in csv.DictReader(fh) if r.get("年月")]
+        cls.prev = next(r for r in cls.hist if r["年月"] == "2025-08")
+        cls.rep = MR.build_management_report(cls.roll, cls.prev, None, cls.hist, None)
+
+    def test_snapshot_carries_the_two_new_keys(self):
+        self.assertEqual(self.roll["outpatient_visit_actual_to_date"], 915)
+        self.assertEqual(self.roll["outpatient_unique_patients_actual_to_date"], 649)
+
+    def test_prev_year_same_bizdays_carries_the_two_new_keys(self):
+        b = self.roll["progress_through_yesterday"]["prev_year_same_bizdays"]
+        self.assertEqual(b["outpatient_visit_count"], 798)
+        self.assertEqual(b["outpatient_unique_patient_count"], 589)
+        # 前年側も当年と同じ外来診療日数まで累計している
+        self.assertEqual(b["outpatient_days_count"],
+                         self.roll["outpatient_actual_days_count"])
+
+    def test_main_three_match_the_spec(self):
+        n = {r["name"]: r for r in self.rep["outpatient_value"]["main"]}
+        self.assertEqual((n[MR.OP_PER_VISIT_LABEL]["now"],
+                          n[MR.OP_PER_VISIT_LABEL]["prev"]), ("12,559円", "16,136円"))
+        self.assertAlmostEqual(n[MR.OP_PER_VISIT_LABEL]["rate"], -22.2, delta=0.05)
+        self.assertEqual((n[MR.OP_PER_PATIENT_LABEL]["now"],
+                          n[MR.OP_PER_PATIENT_LABEL]["prev"]), ("17,706円", "21,862円"))
+        self.assertAlmostEqual(n[MR.OP_PER_PATIENT_LABEL]["rate"], -19.0, delta=0.05)
+        self.assertEqual((n[MR.OP_VISITS_PER_DAY_LABEL]["now"],
+                          n[MR.OP_VISITS_PER_DAY_LABEL]["prev"]), ("70.38回", "61.38回"))
+        self.assertAlmostEqual(n[MR.OP_VISITS_PER_DAY_LABEL]["rate"], 14.7, delta=0.05)
+
+    def test_visits_per_patient_matches_the_spec(self):
+        n = {r["name"]: r for r in self.rep["outpatient_value"]["detail"]}
+        r = n[MR.OP_VISITS_PER_PATIENT_LABEL]
+        self.assertEqual((r["now"], r["prev"]), ("1.41回", "1.35回"))
+        self.assertAlmostEqual(r["rate"], 4.1, delta=0.05)
+
+    def test_unique_patients_are_not_a_sum_of_daily_uniques(self):
+        """月内ユニークは延べ来院回数より必ず小さい（同じ患者が別の日に来るため）。"""
+        self.assertLess(self.roll["outpatient_unique_patients_actual_to_date"],
+                        self.roll["outpatient_visit_actual_to_date"])
+
+    def test_numerator_is_the_outpatient_three_segments_of_the_same_period(self):
+        cur = self.roll["progress_through_yesterday"]["current"]
+        op = cur["insurance_outpatient"] + cur["selfpay"] + cur["product"]
+        self.assertEqual(self.rep["facts"]["op_sales_now"], op)
+
+    def test_conclusion_names_unit_price_not_volume(self):
+        txt = self.rep["outpatient_value"]["text"]
+        self.assertIn("1回の来院あたりの売上が下がっている", txt)
+        self.assertIn("この画面のデータでは判別できません", txt)
+
+    def test_forecast_keys_are_untouched(self):
+        """純外来の追加で予測値が動いていないこと。"""
+        self.assertEqual(self.roll["current_forecast_total"], 21_030_192)
+
+
+# ======================================================================
+class TestOutpatientValueInApp(unittest.TestCase):
+    """画面側に純外来の節がつながっていること。"""
+
+    def _app_source(self):
+        app = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "streamlit_app.py")
+        with io.open(app, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_section_is_rendered(self):
+        src = self._app_source()
+        self.assertIn("def _render_outpatient_value(rep):", src)
+        self.assertIn("_render_outpatient_value(mgmt)", src)
+
+    def test_section_is_labelled_as_excluding_home_visits(self):
+        src = self._app_source()
+        self.assertIn("外来患者価値・外来生産性", src)
+        self.assertIn("訪問診療を含まない・確定実績", src)
+
+    def test_main_and_detail_come_from_the_report(self):
+        """メイン／詳細の割り振りはレポート側の群をそのまま使う。"""
+        src = self._app_source()
+        self.assertIn('ov.get("main", [])', src)
+        self.assertIn('ov.get("detail", [])', src)
+
+    def test_app_does_not_recompute_the_kpi(self):
+        """画面側で割り算をやり直していないこと（定義を2か所に置かない）。"""
+        src = self._app_source()
+        start = src.index("def _render_outpatient_value(rep):")
+        end = src.index("def _render_actions(rep):")
+        body = src[start:end]
+        for token in ("outpatient_visit_actual_to_date",
+                      "outpatient_unique_patients_actual_to_date"):
+            self.assertNotIn(token, body)
 
 
 if __name__ == "__main__":

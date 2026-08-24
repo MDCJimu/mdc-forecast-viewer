@@ -46,8 +46,19 @@ import streamlit as st
 # が出た（画面は新しい呼び出し、モジュールは history_rows を受け取る前の版）。
 # 毎回ソースから読み直せば、この食い違いは起きない。定数と関数だけの
 # モジュールなので、読み直しの副作用も費用もない。
+#
+# import の前に、このファイル自身の置き場所を sys.path へ入れる。
+# Streamlit Cloud はメインスクリプトのディレクトリを sys.path に入れて起動する
+# ため本番では何も変わらないが、streamlit.testing の AppTest はそれをしない。
+# そのため AppTest では mgmt_report の import が黙って失敗して MR=None になり、
+# 「経営分析を組み立てるためのデータが読み込めませんでした」と出たまま
+# 全項目が成功していた（経営分析ブロックを一度も検証できていなかった）。
+# 起動のされ方に関係なく同じモジュールを読むようにして、この穴をふさぐ。
 try:
     import importlib
+    import sys as _sys
+    if os.path.dirname(os.path.abspath(__file__)) not in _sys.path:
+        _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import mgmt_report as MR
     MR = importlib.reload(MR)
 except Exception:      # pragma: no cover - 実行環境にファイルが無い場合のみ
@@ -557,6 +568,90 @@ def _render_capacity_table(rep):
         + "".join(tr) + "</table>"
         "<div class='mfc-note'>「見込み」は月末着地の予測値、「実績」は予測基準日時点の"
         "実データです。前年同月はすべて確定実績です。</div>", unsafe_allow_html=True)
+
+
+# ======================================================================
+# 外来患者価値・外来生産性（訪問診療を含まない・確定実績のみ）
+#   上の「来院・初診・キャンセル・患者数」は訪問診療を含む総数の見込み。
+#   こちらは訪問診療を除いた確定実績どうしの比較で、母集団が違う。
+#   同じ画面に並ぶので、見出しと但し書きで必ず区別する。
+#   月末見込みは作らない（外来来院回数・外来ユニーク患者数に見込みが無いため）。
+# ======================================================================
+# So What は指標ごとに固定の読み方。数字そのものはレポート側が作る。
+# 指標名は MR の定数で引く。MR が読めない環境（import 失敗時）でも
+# 画面自体は描けなければならないので、モジュール読み込み時ではなく
+# 描画時に組み立てる。
+def _opv_sowhat():
+    if MR is None:
+        return {}
+    return {
+        MR.OP_PER_VISIT_LABEL:
+            "1回の来院でいくら作れているか。落ちていれば来院を増やしても売上は戻らない。",
+        MR.OP_PER_PATIENT_LABEL:
+            "患者1人が今月いくらになっているか。来院頻度と1回あたりの積で決まる。",
+        MR.OP_VISITS_PER_DAY_LABEL:
+            "1日に何回来院を受けているか。枠の埋まり方をそのまま表す。",
+    }
+
+
+def _opv_card(r, sowhat_by_name):
+    """メイン3本のカード。3本とも上がるほど良い指標なので、符号で色を決める。"""
+    rt = r.get("rate")
+    tp = "tp-n" if rt is None else ("tp-g" if rt > 0 else ("tp-r" if rt < 0 else "tp-n"))
+    if r["prev"] == "—":
+        pyline = "前年同期：比較なし"
+    else:
+        pyline = (f"前年同期 <b>{_html.escape(r['prev'])}</b>　"
+                  f"{_html.escape(r['diff'])}{'' if rt is None else f' {rt:+.1f}%'}")
+    so = sowhat_by_name.get(r["name"], "")
+    sw = (f"<div class='cardsw'><span class='sw'>So What</span>{so}</div>" if so else "")
+    return (f"<div class='mfc-card {tp}'><div class='lb'>{_html.escape(r['name'])}"
+            f"{lab('act')}</div>"
+            f"<div class='big'>{_html.escape(r['now'])}</div>"
+            f"<div class='py'>{pyline}</div>{sw}</div>")
+
+
+def _opv_table(rows):
+    tr = []
+    for r in rows:
+        rt = "—" if r["rate"] is None else f"{r['rate']:+.1f}%"
+        tr.append(f"<tr><td>{_html.escape(r['name'])}</td>"
+                  f"<td class='n'>{_html.escape(r['now'])}</td>"
+                  f"<td class='n'>{_html.escape(r['prev'])}</td>"
+                  f"<td class='n {signclass(r['diff_raw'])}'>{_html.escape(r['diff'])}</td>"
+                  f"<td class='n {signclass(r['rate'])}'>{rt}</td>"
+                  f"<td class='s'>{_html.escape(r['how'])}</td></tr>")
+    return ("<table class='mfc-ctab'><tr><th>指標</th><th class='n'>今月（確定実績）</th>"
+            "<th class='n'>前年同期</th><th class='n'>差</th><th class='n'>前年比</th>"
+            "<th>数え方</th></tr>" + "".join(tr) + "</table>")
+
+
+def _render_outpatient_value(rep):
+    ov = (rep or {}).get("outpatient_value") or {}
+    st.markdown('<div class="mfc-sec">外来患者価値・外来生産性'
+                '（訪問診療を含まない・確定実績）</div>', unsafe_allow_html=True)
+    if not ov.get("available"):
+        st.markdown("<div class='mfc-card'><div class='na'>データ未取得</div>"
+                    f"<div class='py'>{_html.escape(ov.get('text', ''))}</div></div>",
+                    unsafe_allow_html=True)
+        return
+    scope = ov.get("scope", "")
+    comp = ov.get("compare_scope", "")
+    st.markdown("<div class='mfc-note'><b>" + _html.escape(scope) + "</b>"
+                + ("　／　<b>" + _html.escape(comp) + "</b>" if comp else "")
+                + f"（〜{_html.escape(str(ov.get('cutoff') or ''))}）。"
+                "分子は外来保険＋自費＋物販、分母は訪問診療を含まない外来来院回数・"
+                "外来ユニーク患者数です。月末見込みは作っていません。</div>",
+                unsafe_allow_html=True)
+    _sw = _opv_sowhat()
+    st.markdown("<div class='mfc-cards'>"
+                + "".join(_opv_card(r, _sw) for r in ov.get("main", []))
+                + "</div>", unsafe_allow_html=True)
+    with st.expander("外来患者価値・外来生産性の詳細（外来3区分売上・来院回数・患者数）",
+                     expanded=False):
+        st.markdown(_opv_table(ov.get("detail", [])), unsafe_allow_html=True)
+        st.markdown("<div class='mfc-rep'>" + _p(ov["text"]) + "</div>",
+                    unsafe_allow_html=True)
 
 
 def _render_actions(rep):
@@ -1841,6 +1936,11 @@ def render(month, snap, nav=None):
         "総患者数は当月レセコンの受診者を重複排除した確定人数を基に月末見込みを算出"
         "（人数のみ・個人情報は非保持）。キャンセル率・予約構成は as_of時点の登録済み予約の実データ。</div>",
         unsafe_allow_html=True)
+
+    # ----- 外来患者価値・外来生産性（訪問診療を含まない確定実績）-----
+    # 上のカードは訪問診療を含む総数の月末見込み。ここは訪問を除いた確定実績で、
+    # 母集団も時点も違うため、続けて並べたうえで見出しと但し書きで区別する。
+    _render_outpatient_value(mgmt)
 
     # ----- 予約構成（折りたたみ）-----
     with st.expander("予約ポートフォリオ（型別・登録済み予約）", expanded=False):
