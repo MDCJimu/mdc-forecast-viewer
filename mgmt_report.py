@@ -1612,6 +1612,102 @@ def _position(f, target, levels):
 
 
 # ======================================================================
+# 4.8 ファーストビューの判定（SUMMARY カード用）
+#
+# ここで新しい数値は作らない。facts / levels / target が既に持っている値を、
+# 経営判断の順に並べ替えて言葉にするだけ。
+#
+# 「前年割れ＝悪い」と読める表示は作らない。診療日数が違う月どうしの総額比較は、
+# それ単独では良し悪しを決められないため、必ず
+#   ・前年総額との差
+#   ・外来診療日数の差
+#   ・日数をそろえた前年同月水準との差
+# の3つをそろえて出す。
+# ======================================================================
+def _summary(f, target, levels, position):
+    total = f["total"]
+    by = (levels or {}).get("by_key") or {}
+    py_lv = by.get("prev_year")
+    has_t = bool(target and target.get("has_target"))
+
+    out = {"badge": None, "facts": [], "lead": "", "levels": [], "target": target}
+    if total is None:
+        return out
+
+    # --- 参考水準は金額の降順のまま渡す（画面で並べ替えない）---
+    out["levels"] = [{"label": r["label"], "total": r["total"], "main": r["main"]}
+                     for r in (levels or {}).get("display", [])]
+
+    # --- バッジ ---------------------------------------------------------
+    # 総額で前年を上回るか、日数をそろえた水準で上回るかを分けて判定する。
+    over_total = (f["prev_total"] is not None and total >= f["prev_total"])
+    over_adj = (py_lv is not None and py_lv["total"] is not None
+                and total >= py_lv["total"])
+    if over_total:
+        out["badge"] = {"text": "前年を上回る見込み", "tone": "up"}
+    elif over_adj:
+        # 総額では届かないが、診療日数をそろえれば上回る。ここを赤で出さない。
+        out["badge"] = {"text": "日数をそろえると前年を上回る見込み", "tone": "mid"}
+    elif f["prev_total"] is not None:
+        out["badge"] = {"text": "日数をそろえても前年を下回る見込み", "tone": "dn"}
+
+    # --- 要点（同時に見えていないと誤読される3つ）------------------------
+    if f["yoy"] is not None:
+        out["facts"].append({
+            "label": "前年総額比",
+            "value": yen_sman(f["yoy"]) + (f"（{pct(f['yoy_rate'])}）"
+                                           if f.get("yoy_rate") is not None else ""),
+            "tone": "up" if f["yoy"] >= 0 else "dn"})
+    d_days = f.get("days_outpatient_diff")
+    if d_days:
+        out["facts"].append({"label": "外来診療日", "value": scnt(d_days, "日"),
+                             "tone": "up" if d_days > 0 else "dn"})
+    if py_lv is not None and py_lv["total"] is not None:
+        d = total - py_lv["total"]
+        out["facts"].append({
+            "label": "前年同月水準（日数補正）との差",
+            "value": yen_sman(d), "tone": "up" if d >= 0 else "dn"})
+
+    # --- 結論文 ---------------------------------------------------------
+    parts = []
+    if f["yoy"] is not None and f["prev_total"] is not None:
+        r_yoy = (f"（{pct(f['yoy_rate'])}）"
+                 if f.get("yoy_rate") is not None else "")
+        if f["yoy"] < 0:
+            parts.append(f"前年総額{yen_man(f['prev_total'])}には"
+                         f"{yen_man(abs(f['yoy']))}{r_yoy}届かない見込みですが、")
+        else:
+            parts.append(f"前年総額{yen_man(f['prev_total'])}を"
+                         f"{yen_man(f['yoy'])}{r_yoy}上回る見込みで、")
+    if d_days:
+        parts.append(f"外来診療日は前年より{cnt(abs(d_days), '日')}"
+                     + ("少なく、" if d_days < 0 else "多く、"))
+    if py_lv is not None and py_lv["total"] is not None:
+        d = total - py_lv["total"]
+        parts.append(f"日数補正した前年同月水準{yen_man(py_lv['total'])}は"
+                     + ("上回っています。" if d >= 0 else "下回っています。"))
+    if f["per_day_prev"] and f["per_day_now"]:
+        r = rate(f["per_day_now"], f["per_day_prev"])
+        parts.append(f"外来診療日あたり売上も前年を{pct(r)}"
+                     + ("上回る" if r >= 0 else "下回る") + "見込みで、")
+    v = (position or {}).get("verdict")
+    if v == "above_all":
+        parts.append("過去実績から見ると高い水準です。")
+    elif v == "below_all":
+        parts.append("過去実績から見ると低い水準です。")
+    elif v == "middle":
+        parts.append("過去実績の範囲内の水準です。")
+    if not has_t:
+        parts.append("経営計画目標は未設定のため、目標達成・未達の判定はしていません。")
+    elif target.get("rate") is not None:
+        parts.append(f"経営計画目標{yen_man(target['target'])}に対しては"
+                     f"{yen_sman(target['diff'])}"
+                     f"（達成見込み{target['rate'] * 100:.1f}%）です。")
+    out["lead"] = "".join(parts)
+    return out
+
+
+# ======================================================================
 # 5. 構造変化（診療日数の変化・通常営業ベースとの差）
 # ======================================================================
 def _structure(f, cap):
@@ -2389,6 +2485,7 @@ def build_management_report(roll, prev_year_row=None, prev_forecast_row=None,
         "target": target,
         "decomposition": decomp,
         "position": _position(f, target, levels),
+        "summary": _summary(f, target, levels, _position(f, target, levels)),
         "facts": f,
         "components": comps,
         "conclusion": _conclusion(f, comps, cause, cap),

@@ -1008,6 +1008,41 @@ hr{display:none;}
   box-shadow:0 8px 20px -8px rgba(176,138,78,.75);}
 .mfc-conc .cBadge.dn{background:linear-gradient(135deg,#e2b4b0,#b5544a);color:#2a0f0c;box-shadow:0 8px 20px -8px rgba(181,84,74,.6);}
 .mfc-conc .cYoY{font-size:15px;color:#c4cedd;font-weight:700;}
+/* 経営計画目標。人が決めた1本だけをゴールドで、未設定はそのまま「未設定」と出す。 */
+.mfc-conc .cTgt{display:inline-flex;align-items:baseline;gap:10px;font-size:12.5px;
+  color:#a9b5c6;font-weight:700;letter-spacing:.6px;margin:0 0 18px;
+  border-left:3px solid var(--gold2);padding-left:12px;}
+.mfc-conc .cTgt b{font-size:22px;color:#f0d9a8;font-weight:800;letter-spacing:-.3px;
+  font-variant-numeric:tabular-nums;}
+.mfc-conc .cTgt.na b{font-size:16px;color:#8494a8;font-weight:700;}
+/* バッジの中間トーン。前年総額に届かなくても日数補正では上回る月を赤で出さない。 */
+/* 縮退表示用。良し悪しを示唆しない無彩色にする。 */
+.mfc-conc .cBadge.flat{background:rgba(255,255,255,.14);color:#e8eef6;
+  border:1px solid rgba(255,255,255,.28);box-shadow:none;}
+.mfc-conc .cBadge.mid{background:linear-gradient(135deg,#cfe0f2,#7fa3c9);color:#0d2038;
+  box-shadow:0 8px 20px -8px rgba(127,163,201,.6);}
+.mfc-conc .cBadge.up{background:linear-gradient(135deg,#bfe8cd,#68b98a);color:#0b2417;
+  box-shadow:0 8px 20px -8px rgba(104,185,138,.6);}
+/* 誤読を防ぐ3点セット。総額差・診療日数差・日数補正水準との差を必ず並べて出す。 */
+.mfc-conc .cFacts{display:flex;flex-wrap:wrap;gap:10px 14px;margin-top:16px;}
+.mfc-conc .cFact{display:inline-flex;align-items:baseline;gap:7px;font-size:11.5px;
+  color:#a9b5c6;font-weight:700;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:7px 12px;}
+.mfc-conc .cFact b{font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+.mfc-conc .cFact.up b{color:#8FE3B0;}
+.mfc-conc .cFact.dn b{color:#FFB3B3;}
+.mfc-conc .cRLbl{grid-column:1/-1;font-size:11px;color:var(--gold2);font-weight:800;
+  letter-spacing:1.6px;margin-bottom:2px;}
+.mfc-conc .cRLbl span{display:block;font-size:10.5px;color:#8494a8;font-weight:600;
+  letter-spacing:0;margin-top:4px;line-height:1.5;}
+.mfc-conc .cItem.sub b{font-size:19px;color:#c4cedd;}
+/* 予測の幅。経営の現在地より下・小さく置く。 */
+.mfc-sub{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 26px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:12px 20px;margin:12px 0 0;font-size:12px;color:var(--faint);font-weight:700;}
+.mfc-sub b{margin-left:8px;font-size:15px;color:var(--navy);font-weight:800;
+  font-variant-numeric:tabular-nums;}
+.mfc-sub .n{font-weight:600;font-size:11.5px;margin-left:auto;}
 .mfc-conc .cYoY em{font-style:normal;color:#8FE3B0;}
 .mfc-conc .cRight{grid-template-columns:1fr;gap:20px;padding-left:34px;}
 .mfc-conc .cItem b small{font-size:13px;color:#aeb9c9;margin-left:3px;font-weight:700;}
@@ -1390,24 +1425,11 @@ def render(month, snap, nav=None):
     beats_word = "前年を上回る見込み" if beats else "前年に届かない見込み"
     r80 = f"{manv(lo)}〜{manv(hi)}" if (lo is not None and hi is not None) else "取得不可"
     yoy_pct = f"（{yoy_rate:+.1f}%）" if isinstance(yoy_rate, (int, float)) else ""
-    below = (cur is not None and py is not None and cur < py)
-    verdict_cls = "dn" if below else "up"
-    # 文言のみ。判定条件（yoy_td / biz_diff / beats）は従来のまま変えていない。
-    # 旧文は「弱めだが…下回り」のように、同じ向きの2つを逆接でつないでいて読みにくかった。
-    # 向きが揃っているときは1文にまとめ、食い違うときだけ逆接にする。
-    foot_down = (yoy_td is not None and yoy_td < 0)              # 暦の同日比
-    biz_down = not (biz_diff is not None and biz_diff >= 0)      # 同じ診療日数まで累計した比較
-    month_down = not beats                                       # 月末着地
-    foot_verb = "下回って" if foot_down else "上回って"
-    biz_verb = "下回って" if biz_down else "上回って"
-    month_verb = "下回る" if month_down else "上回る"
-    if foot_down == biz_down:
-        takeaway = f"今月ここまでの実績は、同じ診療日数で比べても<b>前年を{biz_verb}います</b>。"
-    else:
-        takeaway = (f"今月ここまでの実績は暦の同じ日で比べると前年を{foot_verb}いますが、"
-                    f"同じ診療日数で比べると<b>前年を{biz_verb}います</b>。")
-    takeaway += (f"現時点では、月末着地{'も' if month_down == biz_down else 'は'}"
-                 f"<b>前年同月を{month_verb}見込み</b>です。")
+    # 縮退表示のときに出す注記。経営分析（mgmt_report）が読めないと、
+    # 外来診療日数をそろえた前年同月水準を作れない。総額だけを見て良し悪しを
+    # 決めると「診療日が1日少ない月の前年割れ」を悪化と誤読させるため、
+    # 縮退時は事実の提示にとどめて判定語を一切出さない。
+    FALLBACK_NOTE = "経営分析データを取得できないため、総額比較のみ表示しています。"
 
     actual_days = roll.get("actual_days_count") or 0
     remaining_days_count = roll.get("remaining_days_count") or 0
@@ -1422,19 +1444,58 @@ def render(month, snap, nav=None):
 
     st.markdown('<div class="mfc-tier"><span class="n">SUMMARY</span>今日の結論'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
+    # 経営の現在地をヒーローへ統合する。並びは
+    #   着地見込み → 経営計画目標 → 参考水準 → （下段）前年総額・保守ライン・予測レンジ。
+    # Forecast の内部不確実性（保守ライン・80%レンジ）より、経営上の現在位置を先に見せる。
+    smry = (mgmt or {}).get("summary") or {}
+    badge = smry.get("badge") or {}
+    tgt = (mgmt or {}).get("target") or {}
+    # バッジは _summary が判定する（前年総額と日数補正水準を分けて見る）。
+    # mgmt が読めないときだけ従来の landing_beats_prevyear にフォールバックする。
+    if badge:
+        b_text, b_tone = badge["text"], badge["tone"]
+        facts_html = "".join(
+            f"<span class='cFact {x['tone']}'>{_html.escape(x['label'])}"
+            f"<b>{_html.escape(x['value'])}</b></span>"
+            for x in (smry.get("facts") or []))
+    else:
+        # 縮退表示。良し悪しは判定せず、前年総額比という事実だけを中立に出す。
+        b_text = ("前年総額比 "
+                  + (f"{yoy_rate:+.1f}%" if isinstance(yoy_rate, (int, float)) else "—"))
+        b_tone = "flat"
+        facts_html = (f"<span class='cFact'>前年同月<b>{man(py)}</b></span>"
+                      f"<span class='cFact'>前年総額比<b>{sman(yoy)}{yoy_pct}</b></span>")
+    t_val = man(tgt["target"]) if tgt.get("has_target") else "未設定"
+    t_cls = "" if tgt.get("has_target") else " na"
+    lv_html = "".join(
+        f"<div class='cItem{'' if x['main'] else ' sub'}'>"
+        f"{_html.escape(x['label'])}<b>{man(x['total'])}</b></div>"
+        for x in (smry.get("levels") or []))
     st.markdown(
         "<div class='mfc-conc'><div class='cLeft'>"
         f"<div class='cLbl'>今月着地見込み（{ym_jp}）</div>"
         f"<div class='cBig'>{manv(cur)}<span>万円</span></div>"
+        f"<div class='cTgt{t_cls}'>経営計画目標<b>{t_val}</b></div>"
         "<div class='cRow'>"
-        f"<span class='cBadge {verdict_cls}'>{beats_word}</span>"
-        f"<span class='cYoY'>前年同月比 {sman(yoy)} <em>{yoy_pct}</em></span>"
-        "</div></div>"
+        f"<span class='cBadge {b_tone}'>{_html.escape(b_text)}</span>"
+        "</div>"
+        f"<div class='cFacts'>{facts_html}</div>"
+        "</div>"
         "<div class='cRight'>"
-        f"<div class='cItem'>前年同月<b>{man(py)}</b></div>"
-        f"<div class='cItem'>保守ライン<b>{man(cons)}</b></div>"
-        f"<div class='cItem'>80%予測レンジ<b>{r80}<small>万円</small></b></div>"
-        "</div></div>", unsafe_allow_html=True)
+        + ("<div class='cRLbl'>参考水準"
+           "<span>過去実績を今月の外来診療日数に換算した値。目標ではありません</span></div>"
+           + lv_html
+           if lv_html else
+           f"<div class='cRLbl'>参考水準<span>{FALLBACK_NOTE}</span></div>")
+        + "</div></div>", unsafe_allow_html=True)
+    # 予測の内部レンジは、経営の現在地より下・小さく置く。
+    st.markdown(
+        "<div class='mfc-sub'>"
+        f"<span>前年同月（総額）<b>{man(py)}</b></span>"
+        f"<span>保守ライン<b>{man(cons)}</b></span>"
+        f"<span>80%予測レンジ<b>{r80}万円</b></span>"
+        "<span class='n'>保守ラインと80%レンジは予測の幅で、経営目標ではありません</span>"
+        "</div>", unsafe_allow_html=True)
     top3 = (mgmt or {}).get("actions", [])[:3]
     if top3:
         rows_html = "".join(
@@ -1443,9 +1504,16 @@ def render(month, snap, nav=None):
     else:
         rows_html = ("<div class='r'><span class='t'>今日の論点は特定できていません</span>"
                      "<span class='d'>前年同月の実績が読めないため、差の主因を分解できません。</span></div>")
+    # 結論文は _summary が実データから組み立てる（前年総額・診療日数・日数補正水準・
+    # 1日あたり・参考水準での位置・目標の有無を、この順で1つの文にする）。
+    # 読めないときは、判定を書かずに事実と注記だけを出す。
+    lead = _html.escape(smry.get("lead") or "")
+    if not lead:
+        lead = (f"今月の着地見込みは{man(cur)}、前年同月は{man(py)}で、"
+                f"前年総額比は{sman(yoy)}{yoy_pct}です。{FALLBACK_NOTE}")
     st.markdown(
         "<div class='mfc-act'><div class='k'>今日の結論と論点</div>"
-        f"<div class='lead'>{takeaway}</div>"
+        f"<div class='lead'>{lead}</div>"
         f"<div class='rows'>{rows_html}</div></div>", unsafe_allow_html=True)
 
     st.markdown('<div class="mfc-sec">この見込みの前提</div>', unsafe_allow_html=True)
