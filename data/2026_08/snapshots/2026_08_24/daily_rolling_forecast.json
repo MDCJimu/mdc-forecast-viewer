@@ -1,7 +1,7 @@
 {
   "target_month": "2026-08",
   "as_of_date": "2026-08-24",
-  "generated_at": "2026-08-24 08:05:53",
+  "generated_at": "2026-08-24 21:35:12",
   "forecast_mode": "日次ローリング予測",
   "model_version": "MDC Forecast Model v2.0",
   "model_roles": {
@@ -11,11 +11,11 @@
     "challenger_model": "MDC Forecast Engine v3",
     "challenger_status": "shadow",
     "care_component_version": "care-v2.0-post_revision_202606",
-    "production_code_hash": "21c6b7f7e9aa7e127335f45325b923b9e7bad82b615a98e8310402fc6018369a",
+    "production_code_hash": "a23cbc54a01bb224d073eb5aa8ee1436c7a680ff4e8ea0b10a2ef3dc3d1cf32a",
     "note": "forecast_display_model がこの画面の基準予測。evaluation_champion_model は評価上の Champion として承認済みだが本番未採用で、シャドーではない。シャドー運用は challenger_model のみ"
   },
   "code_release_status": "approved",
-  "production_code_hash": "21c6b7f7e9aa7e127335f45325b923b9e7bad82b615a98e8310402fc6018369a",
+  "production_code_hash": "a23cbc54a01bb224d073eb5aa8ee1436c7a680ff4e8ea0b10a2ef3dc3d1cf32a",
   "monthly_lifecycle": {
     "as_of_date": "2026-08-24",
     "active_forecast_month": "2026-08",
@@ -70,11 +70,11 @@
   },
   "reservation_data_status": "fresh",
   "reservation_source": {
-    "file": "reservation_20260824080452980493.csv",
+    "file": "reservation_20260824213405206531.csv",
     "input_date": "2026-08-24",
     "created_max": "2026-08-24",
     "months_in_file": {
-      "2026-08": 1597
+      "2026-08": 1609
     },
     "adopted_month": "2026-08",
     "note": "current フォルダの最新CSVから対象月のみ抽出。前月CSVは流用しない"
@@ -156,26 +156,26 @@
     "cancel": {
       "available": true,
       "label": "登録済み予約(as_of時点)",
-      "current_rate": 15.0,
-      "current_reservations": 1597,
-      "current_cancels": 240,
+      "current_rate": 15.6,
+      "current_reservations": 1609,
+      "current_cancels": 251,
       "prevyear_rate": 15.7
     },
     "reservation_composition": {
       "available": true,
       "label": "登録済み予約(当月・as_of時点)",
-      "current_total": 1597,
+      "current_total": 1609,
       "types": {
         "継続管理型": {
-          "current": 718,
+          "current": 721,
           "prevyear": 806.0
         },
         "都度治療型": {
-          "current": 524,
+          "current": 532,
           "prevyear": 441.0
         },
         "高単価型": {
-          "current": 288,
+          "current": 289,
           "prevyear": 299.0
         },
         "混合・判定保留": {
@@ -187,8 +187,8 @@
   },
   "thursday_closed_target": true,
   "current_forecast_total": 21030192,
-  "conservative_forecast": 20718504,
-  "v2_month_start_forecast": 19759545,
+  "conservative_forecast": 20934852,
+  "v2_month_start_forecast": 19762241,
   "actual_to_date_total": 11491330,
   "elapsed_unrecorded_total": 2847547,
   "remaining_forecast_total": 4639688,
@@ -257,6 +257,14 @@
       "insurance_outpatient": 7106750,
       "selfpay": 5585250,
       "product": 184640,
+      "outpatient_visit_count": 798,
+      "outpatient_unique_patient_count": 589,
+      "outpatient_counts_through": "2025-08-20",
+      "outpatient_counts_source": {
+        "file": "resec_until_2026_07.xlsx",
+        "kind": "fixed",
+        "through": "2025-08-20"
+      },
       "diff_vs_current": -1385310,
       "rate": -10.8,
       "note": "前年の月初から当年と同じ診療日数まで累計した参考値。木曜休診等で暦の同日比較がずれるため併記。",
@@ -293,13 +301,13 @@
   "outpatient_remaining_days_count": 5,
   "outpatient_month_days_count": 21,
   "outpatient_days_note": "外来保険・自費・物販のいずれかに売上が立った日を外来診療日として数える。木曜休診で訪問・介護だけ売上が立った日は含まない。actual_days_count は従来どおり『その日に何らかの売上があったか』で数えており、訪問・介護だけの日も含むため、この値とは一致しないことがある。",
-  "reservation_count_remaining": 398,
+  "reservation_count_remaining": 410,
   "reservation_factor": 1.1,
   "reservation_growth_multiplier": 1.065,
-  "reservation_visible_remaining_as_of": 398,
-  "reservation_projected_final_remaining": 424,
-  "reservation_factor_raw_before_growth": 1.054,
-  "reservation_factor_after_growth": 1.123,
+  "reservation_visible_remaining_as_of": 410,
+  "reservation_projected_final_remaining": 437,
+  "reservation_factor_raw_before_growth": 1.086,
+  "reservation_factor_after_growth": 1.157,
   "reservation_factor_final": 1.1,
   "reservation_growth_by_type": {
     "継続管理型": 1.05,
@@ -307,7 +315,15 @@
     "都度治療型": 1.155,
     "混合・判定保留": 1.069
   },
-  "reservation_growth_logic_note": "月中の予約増加を過去実績から見込み、現在見えている予約数だけで過小評価しないよう補正。過去12か月の同日(D24)→月末 残り予約 増加倍率(中央値)=1.06x。現残り予約398件 → 月末最終見込み424件。factor: 増加織込前1.05 → 織込後1.12 → 適用1.10（上下限[0.85,1.1]）。訪問・介護にはこの予約増加ロジックを適用せず、過去12か月平均で別建て。",
+  "reservation_growth_logic_note": "月中の予約増加を過去実績から見込み、現在見えている予約数だけで過小評価しないよう補正。過去12か月の同日(D24)→月末 残り予約 増加倍率(中央値)=1.06x。現残り予約410件 → 月末最終見込み437件。factor: 増加織込前1.09 → 織込後1.16 → 適用1.10（上下限[0.85,1.1]）。訪問・介護にはこの予約増加ロジックを適用せず、過去12か月平均で別建て。",
+  "outpatient_visit_actual_to_date": 915,
+  "outpatient_unique_patients_actual_to_date": 649,
+  "outpatient_patient_counts_source": {
+    "file": "売上管理用データ.xlsx",
+    "kind": "current",
+    "through": "2026-08-22"
+  },
+  "outpatient_patient_counts_note": "外来来院回数＝訪問診療≠1 の明細行数、外来ユニーク患者数＝同じ明細に出る患者を対象期間全体で重複排除した実人数。日次のユニーク人数の合算では作れないため、元レセコンを直接数えている。分母は outpatient_actual_days_count（外来診療日数）。確定実績のみで、月末見込みは作らない。",
   "insurance_actual_to_date": 9099050,
   "selfpay_actual_to_date": 3036000,
   "product_actual_to_date": 218170,
@@ -321,7 +337,7 @@
     },
     "2_reservation_取得": {
       "ok": true,
-      "detail": "as_of翌日以降の予約=398件 / reservation_data_through=2026-08-31 / status=反映済み"
+      "detail": "as_of翌日以降の予約=410件 / reservation_data_through=2026-08-31 / status=反映済み"
     },
     "3_as_of超の実績を不使用": {
       "ok": true,
