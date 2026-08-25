@@ -1838,6 +1838,66 @@ def _position(f, target, levels):
 #   ・日数をそろえた前年同月水準との差
 # の3つをそろえて出す。
 # ======================================================================
+def _yoy_lead(f, py_lv, d_days):
+    """前年総額比と「日数をそろえた前年同月水準」との比較を1つの文にする。
+
+    向きが食い違うときだけ逆接にする。そろっているのに逆接を使うと、
+    読み手は「片方は良かった」と受け取ってしまう。
+
+    日数の差は比較の軸として添えるだけで、総額差の原因としては書かない。
+    外来診療日が1日少ないことは、総額差がその1日だけで説明できることを
+    意味しない（単価・区分構成も同時に動くため）。「〜のため」は使わない。
+
+      A  総額↓ / 日数補正後↑ … 逆接
+      B  総額↓ / 日数補正後↓ … 順接（逆接にしない）
+      C1 総額↑ / 日数補正後↑ … 順接
+      C2 総額↑ / 日数補正後↓ … 逆接
+      D  日数をそろえた水準が作れない … 総額だけの単文
+    """
+    total, prev = f["total"], f["prev_total"]
+    if total is None or prev is None or f["yoy"] is None:
+        return ""
+    r = f"（{pct(f['yoy_rate'])}）" if f.get("yoy_rate") is not None else ""
+    up_total = f["yoy"] >= 0
+    head = (f"前年総額{yen_man(prev)}を{yen_man(f['yoy'])}{r}上回る見込み"
+            if up_total else
+            f"前年総額{yen_man(prev)}を{yen_man(abs(f['yoy']))}{r}下回る見込み")
+
+    lv = py_lv["total"] if (py_lv and py_lv.get("total") is not None) else None
+    if lv is None:
+        # D: 前年の外来診療日数が無く、日数をそろえた水準を作れない月。
+        return head + "です。"
+
+    d = total - lv
+    up_adj = d >= 0
+
+    def days_cl(form):
+        """外来診療日数の差。form='renyo' は「少なく、」、'mono' は「少ないものの、」。"""
+        if not d_days:
+            return ""
+        base = f"外来診療日は前年より{cnt(abs(d_days), '日')}"
+        if form == "renyo":
+            return base + ("少なく、" if d_days < 0 else "多く、")
+        return base + ("少ないものの、" if d_days < 0 else "多いものの、")
+
+    if up_total and up_adj:
+        # C1 どちらも上回る
+        return (head + "で、" + days_cl("renyo")
+                + f"日数をそろえた前年同月水準{yen_man(lv)}も上回ります。")
+    if up_total and not up_adj:
+        # C2 総額は上回るが、そろえると下回る
+        return (head + "ですが、外来診療日数をそろえて比較すると、"
+                + f"前年同月水準{yen_man(lv)}を{yen_man(abs(d))}下回ります。")
+    if not up_total and up_adj:
+        # A 総額は届かないが、そろえると上回る
+        return (head + "ですが、" + days_cl("renyo")
+                + f"日数をそろえた前年同月水準{yen_man(lv)}は上回ります。")
+    # B どちらも下回る。ここで逆接を使わない。
+    return (head + "です。" + days_cl("mono")
+            + f"日数をそろえた前年同月水準{yen_man(lv)}も{yen_man(abs(d))}下回っており、"
+              "日数の違いを考慮しても前年水準には届いていません。")
+
+
 def _summary(f, target, levels, position):
     total = f["total"]
     by = (levels or {}).get("by_key") or {}
@@ -1883,23 +1943,11 @@ def _summary(f, target, levels, position):
             "value": yen_sman(d), "tone": "up" if d >= 0 else "dn"})
 
     # --- 結論文 ---------------------------------------------------------
-    parts = []
-    if f["yoy"] is not None and f["prev_total"] is not None:
-        r_yoy = (f"（{pct(f['yoy_rate'])}）"
-                 if f.get("yoy_rate") is not None else "")
-        if f["yoy"] < 0:
-            parts.append(f"前年総額{yen_man(f['prev_total'])}には"
-                         f"{yen_man(abs(f['yoy']))}{r_yoy}届かない見込みですが、")
-        else:
-            parts.append(f"前年総額{yen_man(f['prev_total'])}を"
-                         f"{yen_man(f['yoy'])}{r_yoy}上回る見込みで、")
-    if d_days:
-        parts.append(f"外来診療日は前年より{cnt(abs(d_days), '日')}"
-                     + ("少なく、" if d_days < 0 else "多く、"))
-    if py_lv is not None and py_lv["total"] is not None:
-        d = total - py_lv["total"]
-        parts.append(f"日数補正した前年同月水準{yen_man(py_lv['total'])}は"
-                     + ("上回っています。" if d >= 0 else "下回っています。"))
+    # 前年総額比と「日数をそろえた前年同月水準」との比較は、向きがそろうことも
+    # 食い違うこともある。接続詞を先に決めると、両方下回っている月に
+    # 「届かない見込みですが…下回っています」という逆接が残る（2026-08-25 で発生）。
+    # 2つの向きの組み合わせから文型そのものを選ぶ。
+    parts = [_yoy_lead(f, py_lv, d_days)]
     if f["per_day_prev"] and f["per_day_now"]:
         r = rate(f["per_day_now"], f["per_day_prev"])
         parts.append(f"外来診療日あたり売上も前年を{pct(r)}"
@@ -1918,6 +1966,174 @@ def _summary(f, target, levels, position):
                      f"{yen_sman(target['diff'])}"
                      f"（達成見込み{target['rate'] * 100:.1f}%）です。")
     out["lead"] = "".join(parts)
+    return out
+
+
+# ======================================================================
+# 4.6 予測変更の内訳（スナップショット2つの差を金額で割る）
+# ======================================================================
+# 月末着地見込みが前回の基準日からいくら動いたかを、実データだけで分解する。
+# 予測式には触れない。既に配布されているスナップショットを読むだけ。
+#
+# 恒等式（これが閉じるので、説明できない残差は原理的に丸め誤差だけ）
+#
+#   外来3区分の月末見込み = 確定実績(外来3区分) + 経過未反映 + 残り予測
+#   月末着地見込み        = 外来3区分 + 訪問保険 + 介護
+#
+#   Δ月末着地見込み
+#     = Δ確定実績(外来3区分)                    新たに確定した外来実績
+#     + 前回の1日あたり水準 × Δ残り日数          残り予測対象の日数変化
+#     + （Δ残り予測 − 上の項）                   残り予測の1日あたり水準見直し
+#     + Δ経過未反映                              経過・売上未反映日の見込み見直し
+#     + Δ訪問保険見込み + Δ介護見込み            訪問保険・介護の月末見込み
+#
+# 「原因」とは呼ばない。呼べない理由がある：
+#   残り予測から外れた日と、新たに確定した実績の日は同じ日とは限らない。
+#   2026-08-24→25 では、残り予測から外れたのは 8/25 自身（経過未反映へ移動）で、
+#   確定したのは 8/23〜8/24 のデータだった。特定日の「予想 対 実績」を
+#   突き合わせられるデータはスナップショットに保存されていない。
+#   そのため名称は「予測変更の主な内訳」で固定する。
+FC_TITLE = "予測変更の主な内訳"
+FC_NOTE = (
+    "残り予測から外れた日と、新たに確定した実績の日は必ずしも同じ日ではありません。"
+    "この内訳は予測構成の変化を示すもので、"
+    "特定日の『予想対実績』を示すものではありません。")
+FC_SHORT_NOTE = ("※ 内訳は予測構成の変化です。特定日の『予想対実績』ではありません。")
+
+# 確定実績のうち外来3区分（訪問保険・介護は別項で扱う）
+FC_OP_KEYS = ("gairai", "jihi", "buppin")
+# 区分別の内訳。current_forecast_total はこの5つでちょうど作られる。
+FC_SEGMENTS = (("outpatient_insurance_forecast", "外来保険"),
+               ("selfpay_forecast", "自費"),
+               ("product_forecast", "物販"),
+               ("visit_insurance_forecast", "訪問保険"),
+               ("care_forecast", "介護"))
+
+
+def _fc_conf(roll, key):
+    """確定実績の区分別内訳。古いスナップショットには無いので None。"""
+    fc = (roll or {}).get("forecast_composition") or {}
+    return (fc.get("confirmed_actual_detail") or {}).get(key)
+
+
+def _md(d):
+    """2026-08-25 → 8/25。画面の見出し用。"""
+    if not d or len(str(d)) < 10:
+        return str(d or "")
+    return f"{int(str(d)[5:7])}/{int(str(d)[8:10])}"
+
+
+def build_forecast_change(prev_roll, roll):
+    """スナップショット2つから、月末着地見込みの変化を内訳へ分解する。
+
+    prev_roll が無い／必要なキーが無い場合は available=False を返し、
+    値の推測はしない（画面はブロックごと出さない）。
+    """
+    out = {"available": False, "reason": "", "title": FC_TITLE,
+           "note": FC_NOTE, "short_note": FC_SHORT_NOTE,
+           "from_as_of": None, "to_as_of": None, "label": "",
+           "from_label": "", "to_label": "",
+           "from_total": None, "to_total": None, "diff": None,
+           "direction": "", "items": [], "residual": None,
+           "segments": [], "comment": ""}
+    if not roll:
+        out["reason"] = "no_snapshot"
+        return out
+    out["to_as_of"] = roll.get("as_of_date")
+    out["to_total"] = f_(roll.get("current_forecast_total"))
+    if not prev_roll:
+        # 月初など、比べる前のスナップショットがまだ無い。
+        out["reason"] = "no_previous"
+        return out
+    out["from_as_of"] = prev_roll.get("as_of_date")
+    out["from_total"] = f_(prev_roll.get("current_forecast_total"))
+
+    need = ("current_forecast_total", "remaining_forecast_total",
+            "remaining_days_count", "elapsed_unrecorded_total",
+            "visit_insurance_forecast", "care_forecast")
+    for o in (prev_roll, roll):
+        if any(o.get(k) is None for k in need):
+            out["reason"] = "missing_keys"
+            return out
+        if any(_fc_conf(o, k) is None for k in FC_OP_KEYS):
+            # confirmed_actual_detail を持たない世代のスナップショット。
+            out["reason"] = "no_confirmed_detail"
+            return out
+
+    a, b = prev_roll, roll
+    diff = out["to_total"] - out["from_total"]
+    out["diff"] = diff
+    out["direction"] = "下方修正" if diff < 0 else ("上方修正" if diff > 0 else "横ばい")
+    out["from_label"] = _md(out["from_as_of"])
+    out["to_label"] = _md(out["to_as_of"])
+    out["label"] = f"{out['from_label']} → {out['to_label']}"
+
+    # 1. 新たに確定した外来実績（外来保険＋自費＋物販の確定分の増分）
+    new_conf = sum(_fc_conf(b, k) - _fc_conf(a, k) for k in FC_OP_KEYS)
+
+    # 2/3. 残り予測を「対象日数の変化」と「1日あたり水準の見直し」に割る。
+    #      日数の項は前回の1日あたり水準で評価する（前回の見方がどれだけ外れたか
+    #      ではなく、前回の見方のまま日数だけ動いたらいくらか、という意味）。
+    n0, n1 = a["remaining_days_count"], b["remaining_days_count"]
+    v0, v1 = f_(a["remaining_forecast_total"]), f_(b["remaining_forecast_total"])
+    r0 = (v0 / n0) if n0 else 0.0
+    days_term = r0 * (n1 - n0)
+    rate_term = (v1 - v0) - days_term
+
+    # 4. 経過・売上未反映日の見込み見直し
+    unrec = f_(b["elapsed_unrecorded_total"]) - f_(a["elapsed_unrecorded_total"])
+
+    # 5. 訪問保険・介護の月末見込み（確定実績への振替は総額を動かさない）
+    vc = ((f_(b["visit_insurance_forecast"]) - f_(a["visit_insurance_forecast"]))
+          + (f_(b["care_forecast"]) - f_(a["care_forecast"])))
+
+    # 表の見出し用（〜が1日減少）と、文中用（〜の1日減少が▲93万円）で形を分ける。
+    # 同じ語を文に埋めると「残り予測対象が1日減少が▲93万円」と助詞が重なる。
+    dn = n1 - n0
+    if dn < 0:
+        days_label = f"残り予測対象が{abs(dn)}日減少"
+        days_cmt = f"残り予測対象の{abs(dn)}日減少"
+    elif dn > 0:
+        days_label = f"残り予測対象が{dn}日増加"
+        days_cmt = f"残り予測対象の{dn}日増加"
+    else:
+        days_label = days_cmt = "残り予測対象の日数変化"
+
+    out["items"] = [
+        {"key": "new_confirmed", "label": "新たに確定した外来実績", "yen": new_conf,
+         "how": "外来保険＋自費＋物販の確定実績の増分"},
+        {"key": "remaining_days", "label": days_label, "yen": days_term,
+         "comment_label": days_cmt,
+         "how": f"前回の1日あたり水準{r0:,.0f}円 × {dn:+d}日"},
+        {"key": "unrecorded", "label": "経過・売上未反映日の見込み見直し", "yen": unrec,
+         "how": "まだ売上が入っていない経過日の見込み額の変化"},
+        {"key": "remaining_rate", "label": "残り予測の1日あたり水準見直し",
+         "yen": rate_term, "how": "残り期間の1日あたり見込み水準の変化"},
+        {"key": "visit_care", "label": "訪問保険・介護の月末見込み", "yen": vc,
+         "how": "確定実績への振替は総額を動かさない"},
+    ]
+    explained = sum(i["yen"] for i in out["items"])
+    out["residual"] = diff - explained
+
+    # --- 区分別（総額を動かした実体。詳細側に置く）---
+    for k, lb in FC_SEGMENTS:
+        v_a, v_b = f_(a.get(k)), f_(b.get(k))
+        if v_a is None or v_b is None:
+            continue
+        out["segments"].append({"label": lb, "from": v_a, "to": v_b,
+                                "diff": v_b - v_a})
+
+    # --- コメント（因果を作らない。動いた内訳を並べるだけ）---
+    moved = [i for i in out["items"] if round(i["yen"] / MAN) != 0]
+    body = "、".join(f"{i.get('comment_label', i['label'])}が{yen_sman(i['yen'])}"
+                    for i in moved)
+    out["comment"] = (
+        f"{_md(out['from_as_of'])}から{_md(out['to_as_of'])}にかけて、"
+        f"月末見込みは{yen_man(abs(diff))}"
+        + ("下がりました。" if diff < 0 else "上がりました。" if diff > 0
+           else "変わりませんでした。")
+        + (f"内訳は、{body}です。" if body else ""))
+    out["available"] = True
     return out
 
 

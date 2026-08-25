@@ -1867,25 +1867,28 @@ class TestOutpatientValue(unittest.TestCase):
 
 # ======================================================================
 class TestOutpatientValueOnRealSnapshot(unittest.TestCase):
-    """本番スナップショット（outputs/daily_rolling_forecast.json）での実値。
+    """配布済みスナップショット 2026-08-24 での実値。
 
-    公開前の生成物を直接読む。まだ cloud_deploy へ配布していない段階でも、
-    実データで組み立てた結果が仕様どおりかをここで確かめる。
+    outputs/ は日次更新のたびに書き換わるので、日付を固定した検証の土台には
+    ならない（実際 8/25 の更新で 960/675 に変わった）。配布済みスナップショットは
+    コミット済みで動かないため、こちらを正として 8/24 の値を固定する。
     """
+
+    AS_OF = "2026_08_24"
 
     @classmethod
     def setUpClass(cls):
         import json
         import csv
         here = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(os.path.dirname(here), "outputs",
+        path = os.path.join(here, "data", "2026_08", "snapshots", cls.AS_OF,
                             "daily_rolling_forecast.json")
         if not os.path.isfile(path):
-            raise unittest.SkipTest("outputs/daily_rolling_forecast.json が無い")
+            raise unittest.SkipTest(f"{cls.AS_OF} のスナップショットが無い")
         with io.open(path, encoding="utf-8") as fh:
             cls.roll = json.load(fh)
-        if cls.roll.get("target_month") != "2026-08":
-            raise unittest.SkipTest("対象月が 2026-08 ではない")
+        if cls.roll.get("as_of_date") != "2026-08-24":
+            raise unittest.SkipTest("as_of が 2026-08-24 ではない")
         hp = os.path.join(here, "data", "history", "monthly_actuals.csv")
         with io.open(hp, encoding="utf-8-sig", newline="") as fh:
             cls.hist = [r for r in csv.DictReader(fh) if r.get("年月")]
@@ -1977,6 +1980,343 @@ class TestOutpatientValueInApp(unittest.TestCase):
         for token in ("outpatient_visit_actual_to_date",
                       "outpatient_unique_patients_actual_to_date"):
             self.assertNotIn(token, body)
+
+
+# ======================================================================
+class TestSummaryLead(unittest.TestCase):
+    """SUMMARY の結論文。前年総額比と日数補正後の向きで文型を変える。
+
+    2026-08-25 に「届かない見込みですが…下回っています」という
+    逆接が出ていた。前段が後段の向きを見ずに接続詞を決めていたのが原因。
+    ここで4ケース＋水準なしを固定する。
+    """
+
+    PREV = 21_805_410      # 前年総額 2,181万円
+    LV = 20_635_654        # 日数をそろえた前年同月水準 2,064万円
+
+    def lead(self, total, lv=LV, d_days=-1):
+        yoy = total - self.PREV
+        f = {"total": float(total), "prev_total": float(self.PREV),
+             "yoy": float(yoy), "yoy_rate": round(yoy / self.PREV * 100, 1)}
+        py_lv = None if lv is None else {"total": float(lv)}
+        return MR._yoy_lead(f, py_lv, d_days)
+
+    # ---- A: 総額↓ / 日数補正後↑ → 逆接が成立する唯一のケース ----
+    def test_case_a_uses_contrast(self):
+        t = self.lead(21_030_192)            # 2026-08-24 の実値
+        self.assertIn("ですが、", t)
+        self.assertIn("は上回ります。", t)
+        self.assertNotIn("下回っており", t)
+        self.assertEqual(
+            t, "前年総額2,181万円を78万円（-3.6%）下回る見込みですが、"
+               "外来診療日は前年より1日少なく、"
+               "日数をそろえた前年同月水準2,064万円は上回ります。")
+
+    # ---- B: 総額↓ / 日数補正後↓ → 逆接を使わない ----
+    def test_case_b_has_no_contrast(self):
+        t = self.lead(20_449_283)            # 2026-08-25 の実値
+        self.assertNotIn("ですが", t)
+        self.assertNotIn("届かない", t)
+        self.assertIn("下回る見込みです。", t)
+        self.assertIn("も19万円下回っており", t)
+
+    def test_case_b_forbidden_phrases(self):
+        """撤回した言い回しが二度と出ないこと。"""
+        t = self.lead(20_449_283)
+        for bad in ("届かない見込みですが",
+                    "前年同月水準2,064万円は下回っています",
+                    "水準2,064万円は下回"):
+            self.assertNotIn(bad, t, f"禁止表現が出た: {bad}")
+
+    def test_case_b_exact_text(self):
+        self.assertEqual(
+            self.lead(20_449_283),
+            "前年総額2,181万円を136万円（-6.2%）下回る見込みです。"
+            "外来診療日は前年より1日少ないものの、"
+            "日数をそろえた前年同月水準2,064万円も19万円下回っており、"
+            "日数の違いを考慮しても前年水準には届いていません。")
+
+    # ---- C1: 総額↑ / 日数補正後↑ → 順接 ----
+    def test_case_c1_is_plain(self):
+        t = self.lead(21_900_000)
+        self.assertNotIn("ですが", t)
+        self.assertIn("上回る見込みで、", t)
+        self.assertIn("も上回ります。", t)
+
+    # ---- C2: 総額↑ / 日数補正後↓ → 逆接 ----
+    def test_case_c2_uses_contrast(self):
+        t = self.lead(21_900_000, lv=22_000_000, d_days=1)
+        self.assertIn("ですが、", t)
+        self.assertIn("外来診療日数をそろえて比較すると", t)
+        self.assertRegex(t, r"前年同月水準[0-9,]+万円を[0-9,]+万円下回ります。$")
+        self.assertNotIn("も上回ります", t)
+
+    # ---- D: 日数をそろえた水準が作れない ----
+    def test_case_d_is_single_sentence(self):
+        t = self.lead(21_878_649, lv=None)
+        self.assertEqual(t, "前年総額2,181万円を7万円（+0.3%）上回る見込みです。")
+        self.assertNotIn("日数", t)
+        self.assertNotIn("外来診療日", t)
+
+    # ---- 共通の約束 ----
+    def test_particle_is_wo_or_mo_not_ha(self):
+        """『水準◯◯は下回る』とは書かない（主語がずれて読める）。"""
+        for total, lv, dd in ((20_449_283, self.LV, -1),
+                              (21_900_000, 22_000_000, 1)):
+            t = self.lead(total, lv, dd)
+            self.assertNotRegex(t, r"水準[0-9,]+万円は下回")
+
+    def test_never_claims_days_caused_the_gap(self):
+        """日数の差を総額差の原因として断定しない。"""
+        for total, lv, dd in ((21_030_192, self.LV, -1),
+                              (20_449_283, self.LV, -1),
+                              (21_900_000, self.LV, -1),
+                              (21_900_000, 22_000_000, 1)):
+            t = self.lead(total, lv, dd)
+            for bad in ("ため", "せい", "による差", "が原因"):
+                self.assertNotIn(bad, t, f"因果を断定している: {t}")
+
+    def test_no_days_clause_when_days_are_equal(self):
+        t = self.lead(20_449_283, d_days=0)
+        self.assertNotIn("外来診療日は前年より", t)
+        self.assertIn("も19万円下回っており", t)
+
+    def test_direction_word_matches_the_sign(self):
+        for total in (19_000_000, 20_449_283, 21_030_192, 21_900_000, 23_000_000):
+            t = self.lead(total)
+            if total >= self.PREV:
+                self.assertIn("上回る見込み", t)
+            else:
+                self.assertIn("下回る見込み", t)
+
+    def test_lead_is_used_by_the_report(self):
+        """_summary の lead が実際にこの文から始まること。"""
+        rep = build(make_roll(15_113_808, 6_010_211, 316_528,
+                              13_393_890, 8_131_750, 279_770))
+        f = rep["facts"]
+        by = (rep["levels"] or {}).get("by_key") or {}
+        want = MR._yoy_lead(f, by.get("prev_year"), f.get("days_outpatient_diff"))
+        self.assertTrue(rep["summary"]["lead"].startswith(want), rep["summary"]["lead"])
+
+
+# ======================================================================
+class TestForecastChange(unittest.TestCase):
+    """予測変更の内訳。スナップショット2つの差を金額で割る。
+
+    金額が閉じること（残差が丸め誤差だけ）と、
+    「原因」と呼んでいないことを固定する。
+    """
+
+    SNAPS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "data", "2026_08", "snapshots")
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        if not os.path.isdir(cls.SNAPS):
+            raise unittest.SkipTest("2026_08 のスナップショットが無い")
+
+        def load(d):
+            p = os.path.join(cls.SNAPS, d, "daily_rolling_forecast.json")
+            if not os.path.isfile(p):
+                raise unittest.SkipTest(f"{d} が無い")
+            return json.load(io.open(p, encoding="utf-8"))
+
+        cls.s21, cls.s22 = load("2026_08_21"), load("2026_08_22")
+        cls.s24, cls.s25 = load("2026_08_24"), load("2026_08_25")
+        cls.fc = MR.build_forecast_change(cls.s24, cls.s25)
+
+    def items(self, fc=None):
+        return {i["key"]: i["yen"] for i in (fc or self.fc)["items"]}
+
+    # ---- 金額が閉じること ----
+    def test_items_plus_residual_equal_the_diff(self):
+        fc = self.fc
+        self.assertAlmostEqual(sum(i["yen"] for i in fc["items"]) + fc["residual"],
+                               fc["diff"], places=6)
+
+    def test_residual_is_only_rounding(self):
+        self.assertLess(abs(self.fc["residual"]), 100,
+                        f"残差が大きい: {self.fc['residual']}")
+
+    def test_diff_matches_the_snapshots(self):
+        fc = self.fc
+        self.assertEqual(fc["from_total"], self.s24["current_forecast_total"])
+        self.assertEqual(fc["to_total"], self.s25["current_forecast_total"])
+        self.assertAlmostEqual(fc["diff"], -580_909, places=6)
+
+    def test_closes_for_every_recent_transition(self):
+        for a, b in ((self.s21, self.s22), (self.s22, self.s24),
+                     (self.s24, self.s25)):
+            fc = MR.build_forecast_change(a, b)
+            self.assertTrue(fc["available"])
+            self.assertLess(abs(fc["residual"]), 100,
+                            f"{fc['label']} の残差: {fc['residual']}")
+
+    def test_segments_sum_to_the_diff(self):
+        seg = sum(s["diff"] for s in self.fc["segments"])
+        self.assertLess(abs(seg - self.fc["diff"]), 100, f"区分別の合計: {seg}")
+
+    # ---- 2026-08-24 → 25 の実数 ----
+    def test_august_25_headline(self):
+        fc = self.fc
+        self.assertEqual(fc["label"], "8/24 → 8/25")
+        self.assertEqual(MR.yen_man(fc["from_total"]), "2,103万円")
+        self.assertEqual(MR.yen_man(fc["to_total"]), "2,045万円")
+        self.assertEqual(MR.yen_sman(fc["diff"]), "▲58万円")
+        self.assertEqual(fc["direction"], "下方修正")
+
+    def test_august_25_items(self):
+        it = self.items()
+        want = {"new_confirmed": 45.3, "remaining_days": -92.8,
+                "unrecorded": -19.1, "remaining_rate": 8.5, "visit_care": 0.0}
+        for k, v in want.items():
+            self.assertAlmostEqual(it[k] / 10000, v, delta=0.05, msg=k)
+
+    def test_august_25_items_rounded_for_display(self):
+        it = self.items()
+        self.assertEqual(MR.yen_sman(it["new_confirmed"]), "+45万円")
+        self.assertEqual(MR.yen_sman(it["remaining_days"]), "▲93万円")
+        self.assertEqual(MR.yen_sman(it["unrecorded"]), "▲19万円")
+        self.assertEqual(MR.yen_sman(it["remaining_rate"]), "+9万円")
+        self.assertEqual(MR.yen_sman(it["visit_care"]), "±0万円")
+        self.assertEqual(MR.yen_sman(self.fc["residual"]), "±0万円")
+
+    def test_august_25_segments(self):
+        seg = {s["label"]: s["diff"] for s in self.fc["segments"]}
+        for lb, v in (("外来保険", -20.1), ("自費", -36.9), ("物販", -1.1),
+                      ("訪問保険", 0.0), ("介護", 0.0)):
+            self.assertAlmostEqual(seg[lb] / 10000, v, delta=0.05, msg=lb)
+
+    def test_visit_and_care_month_end_forecast_did_not_move(self):
+        """訪問保険・介護は確定へ振り替わっただけで月末見込みは動いていない。"""
+        for k in ("visit_insurance_forecast", "care_forecast"):
+            self.assertEqual(self.s24[k], self.s25[k], k)
+        self.assertAlmostEqual(self.items()["visit_care"], 0.0, places=6)
+
+    def test_days_label_names_the_pool_not_the_day(self):
+        """『残り予測から外れた日』ではなく『残り予測対象の減少』と呼ぶ。"""
+        lb = {i["key"]: i["label"] for i in self.fc["items"]}["remaining_days"]
+        self.assertEqual(lb, "残り予測対象が1日減少")
+
+    # ---- 呼び方（原因と言わない）----
+    def test_never_called_a_cause(self):
+        fc = self.fc
+        text = " ".join([fc["title"], fc["comment"], fc["note"],
+                         fc["short_note"]]
+                        + [i["label"] for i in fc["items"]]
+                        + [i.get("how", "") for i in fc["items"]])
+        self.assertEqual(fc["title"], "予測変更の主な内訳")
+        for bad in ("原因", "主因", "предположение", "せい", "が理由"):
+            self.assertNotIn(bad, text, f"原因として書いている: {bad}")
+
+    def test_comment_does_not_claim_actuals_missed_the_forecast(self):
+        c = self.fc["comment"]
+        for bad in ("下回ったため", "予想を下回", "見込みを下回った",
+                    "実績が想定", "主因"):
+            self.assertNotIn(bad, c, f"証明できない因果: {bad}")
+
+    def test_comment_matches_the_agreed_shape(self):
+        c = self.fc["comment"]
+        self.assertIn("8/24から8/25にかけて、月末見込みは58万円下がりました。", c)
+        self.assertIn("新たに確定した外来実績が+45万円", c)
+        self.assertIn("残り予測対象の1日減少が▲93万円", c)
+        self.assertIn("経過・売上未反映日の見込み見直しが▲19万円", c)
+        self.assertIn("残り予測の1日あたり水準見直しが+9万円", c)
+        # 助詞が重なっていない
+        self.assertNotIn("が1日減少が", c)
+
+    def test_note_says_the_days_are_not_the_same(self):
+        n = self.fc["note"]
+        self.assertIn("必ずしも同じ日ではありません", n)
+        self.assertIn("予想対実績", n)
+
+    # ---- 足りないときは出さない ----
+    def test_no_previous_snapshot(self):
+        fc = MR.build_forecast_change(None, self.s25)
+        self.assertFalse(fc["available"])
+        self.assertEqual(fc["reason"], "no_previous")
+        self.assertEqual(fc["items"], [])
+
+    def test_no_snapshot_at_all(self):
+        fc = MR.build_forecast_change(None, None)
+        self.assertFalse(fc["available"])
+        self.assertEqual(fc["reason"], "no_snapshot")
+
+    def test_old_snapshot_without_confirmed_detail(self):
+        """confirmed_actual_detail を持たない世代では作らない（推定しない）。"""
+        import copy
+        old = copy.deepcopy(self.s24)
+        old["forecast_composition"].pop("confirmed_actual_detail", None)
+        fc = MR.build_forecast_change(old, self.s25)
+        self.assertFalse(fc["available"])
+        self.assertEqual(fc["reason"], "no_confirmed_detail")
+
+    def test_missing_keys_are_not_guessed(self):
+        import copy
+        old = copy.deepcopy(self.s24)
+        old.pop("remaining_forecast_total", None)
+        fc = MR.build_forecast_change(old, self.s25)
+        self.assertFalse(fc["available"])
+        self.assertEqual(fc["reason"], "missing_keys")
+
+    def test_identical_snapshots_show_no_change(self):
+        fc = MR.build_forecast_change(self.s25, self.s25)
+        self.assertTrue(fc["available"])
+        self.assertAlmostEqual(fc["diff"], 0.0, places=6)
+        self.assertEqual(fc["direction"], "横ばい")
+        for i in fc["items"]:
+            self.assertAlmostEqual(i["yen"], 0.0, places=6)
+
+    # ---- 予測値そのものに触れていないこと ----
+    def test_does_not_touch_forecast_values(self):
+        import copy
+        a, b = copy.deepcopy(self.s24), copy.deepcopy(self.s25)
+        MR.build_forecast_change(a, b)
+        self.assertEqual(a, self.s24)
+        self.assertEqual(b, self.s25)
+
+
+# ======================================================================
+class TestForecastChangeInApp(unittest.TestCase):
+    """画面側に予測変更ブロックがつながっていること。"""
+
+    def _src(self):
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "streamlit_app.py")
+        with io.open(p, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_block_is_rendered_under_the_chart(self):
+        src = self._src()
+        self.assertIn("def _render_forecast_change(month, snap):", src)
+        self.assertIn("_render_forecast_change(month, snap)", src)
+        # グラフ（凡例）の直後に呼ばれていること
+        self.assertLess(src.index("mfc-clegend"),
+                        src.index("    _render_forecast_change(month, snap)"))
+
+    def test_history_is_in_an_expander(self):
+        src = self._src()
+        self.assertIn("過去の予測変更を見る", src)
+        self.assertIn("def _render_forecast_change_history(", src)
+
+    def test_app_does_not_recompute_the_breakdown(self):
+        """内訳の計算は mgmt_report 側だけ（定義を2か所に置かない）。"""
+        src = self._src()
+        s = src.index("def _render_forecast_change(month, snap):")
+        e = src.index("def _render_actions(rep):")
+        body = src[s:e]
+        for token in ("remaining_forecast_total", "elapsed_unrecorded_total",
+                      "confirmed_actual_detail", "remaining_days_count"):
+            self.assertNotIn(token, body, token)
+
+    def test_app_does_not_say_cause(self):
+        src = self._src()
+        s = src.index("def _render_forecast_change(month, snap):")
+        e = src.index("def _render_actions(rep):")
+        body = src[s:e]
+        for bad in ("下方修正の主因", "原因は", "主因"):
+            self.assertNotIn(bad, body, bad)
 
 
 if __name__ == "__main__":

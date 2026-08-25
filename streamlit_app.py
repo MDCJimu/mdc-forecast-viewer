@@ -654,6 +654,135 @@ def _render_outpatient_value(rep):
                     unsafe_allow_html=True)
 
 
+# ======================================================================
+# 予測変更の内訳（「日次予測の推移」グラフの直下）
+#   グラフは「上がった／下がった」しか分からない。何が動いてそうなったかを
+#   スナップショット間の実データだけで割って添える。推測は書かない。
+#   名称は「予測変更の主な内訳」で固定する（「原因」「主因」とは呼ばない。
+#   残り予測から外れた日と、新たに確定した実績の日が同じとは限らないため）。
+# ======================================================================
+def _snap_roll(month, snap):
+    """スナップショットの daily_rolling_forecast.json。無ければ None。"""
+    return read_json(os.path.join(DATA, month, "snapshots", snap, F_ROLL))
+
+
+def _fc_rows_html(items, residual):
+    tr = []
+    for i in items:
+        tr.append(f"<tr><td>{_html.escape(i['label'])}</td>"
+                  f"<td class='n {signclass(i['yen'])}'>{MR.yen_sman(i['yen'])}</td>"
+                  f"<td class='s'>{_html.escape(i.get('how', ''))}</td></tr>")
+    if residual is not None:
+        tr.append(f"<tr><td>説明できない残差</td>"
+                  f"<td class='n {signclass(residual)}'>{MR.yen_sman(residual)}</td>"
+                  f"<td class='s'>内訳で説明しきれなかった分（丸め誤差を含む）</td></tr>")
+    return ("<table class='mfc-ctab'><tr><th>予測変更の主な内訳</th>"
+            "<th style='text-align:right'>金額</th><th>数え方</th></tr>"
+            + "".join(tr) + "</table>")
+
+
+def _render_forecast_change(month, snap):
+    """直近の予測変更を、グラフの直下に出す。
+
+    比べる前のスナップショットが無い月初や、内訳に必要なキーを持たない
+    古いスナップショットでは、ブロックごと出さない（推定値は作らない）。
+    """
+    if MR is None:
+        return
+    snaps = list_snapshots(month)          # 新しい順
+    if not snaps or snap not in snaps:
+        return
+    i = snaps.index(snap)
+    if i + 1 >= len(snaps):
+        return                              # 比較できる前回が無い（月初など）
+    cur = _snap_roll(month, snap)
+    prev = _snap_roll(month, snaps[i + 1])
+    fc = MR.build_forecast_change(prev, cur)
+    if not fc.get("available"):
+        return
+
+    st.markdown('<div class="mfc-sec">直近の予測変更</div>', unsafe_allow_html=True)
+    cls = signclass(fc["diff"])
+    st.markdown(
+        "<div class='mfc-fc'>"
+        f"<div class='hd'>{_html.escape(fc['label'])}</div>"
+        f"<div class='big'>{man(fc['from_total'])} → {man(fc['to_total'])}"
+        f"<span class='dl {cls}'>{MR.yen_sman(fc['diff'])} {fc['direction']}</span></div>"
+        "</div>", unsafe_allow_html=True)
+    st.markdown(_fc_rows_html(fc["items"], fc["residual"]), unsafe_allow_html=True)
+    st.markdown(f"<div class='mfc-rep'>{_p(fc['comment'])}</div>",
+                unsafe_allow_html=True)
+    st.markdown(f"<div class='mfc-note'>{_html.escape(fc['short_note'])}</div>",
+                unsafe_allow_html=True)
+
+    with st.expander("予測変更の内訳（区分別）と注記", expanded=False):
+        seg = fc.get("segments") or []
+        if seg:
+            tr = []
+            for s in seg:
+                tr.append(f"<tr><td>{_html.escape(s['label'])}</td>"
+                          f"<td class='n'>{man(s['from'])}</td>"
+                          f"<td class='n'>{man(s['to'])}</td>"
+                          f"<td class='n {signclass(s['diff'])}'>"
+                          f"{MR.yen_sman(s['diff'])}</td></tr>")
+            total_d = sum(s["diff"] for s in seg)
+            tr.append(f"<tr><td><b>合計</b></td><td class='n'></td><td class='n'></td>"
+                      f"<td class='n {signclass(total_d)}'><b>"
+                      f"{MR.yen_sman(total_d)}</b></td></tr>")
+            st.markdown(
+                "<table class='mfc-ctab'><tr><th>区分</th>"
+                f"<th style='text-align:right'>{_html.escape(fc['from_label'])}</th>"
+                f"<th style='text-align:right'>{_html.escape(fc['to_label'])}</th>"
+                "<th style='text-align:right'>変化</th></tr>"
+                + "".join(tr) + "</table>", unsafe_allow_html=True)
+            st.markdown("<div class='mfc-note'>月末着地見込みはこの5区分でちょうど"
+                        "作られています。訪問保険・介護は『確度の高い見込み』が"
+                        "『確定実績』へ振り替わっても、月末見込みそのものは動きません。"
+                        "</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='mfc-note'>{_html.escape(fc['note'])}</div>",
+                    unsafe_allow_html=True)
+
+    _render_forecast_change_history(month, snaps, i)
+
+
+def _render_forecast_change_history(month, snaps, i, back=3):
+    """過去の予測変更。常時は出さず、折りたたみの中に直近数件だけ置く。"""
+    rows = []
+    for k in range(i, min(i + back, len(snaps) - 1)):
+        cur = _snap_roll(month, snaps[k])
+        prev = _snap_roll(month, snaps[k + 1])
+        fc = MR.build_forecast_change(prev, cur)
+        if fc.get("available"):
+            rows.append(fc)
+    if len(rows) < 2:
+        return
+    with st.expander("過去の予測変更を見る", expanded=False):
+        by = {}
+        for fc in rows:
+            by[fc["label"]] = {i2["key"]: i2["yen"] for i2 in fc["items"]}
+        tr = []
+        for fc in reversed(rows):          # 古い順に並べる
+            v = by[fc["label"]]
+            tds = "".join(
+                f"<td class='n {signclass(v.get(k))}'>{MR.yen_sman(v.get(k))}</td>"
+                for k in ("new_confirmed", "remaining_days", "unrecorded",
+                          "remaining_rate"))
+            tr.append(f"<tr><td>{_html.escape(fc['label'])}</td>"
+                      f"<td class='n {signclass(fc['diff'])}'>"
+                      f"<b>{MR.yen_sman(fc['diff'])}</b></td>{tds}</tr>")
+        st.markdown(
+            "<table class='mfc-ctab'><tr><th>基準日</th>"
+            "<th style='text-align:right'>変更額</th>"
+            "<th style='text-align:right'>新規確定</th>"
+            "<th style='text-align:right'>残り予測対象減</th>"
+            "<th style='text-align:right'>未反映見直し</th>"
+            "<th style='text-align:right'>残り水準見直し</th></tr>"
+            + "".join(tr) + "</table>"
+            "<div class='mfc-note'>各行とも、4項の合計が変更額に一致します"
+            "（訪問保険・介護の月末見込みが動いた月はその分も加わります）。</div>",
+            unsafe_allow_html=True)
+
+
 def _render_actions(rep):
     """今月の打ち手。1件ごとに 対象／理由／確認する数字／判断 を出す。"""
     acts = (rep or {}).get("actions") or []
@@ -1281,6 +1410,11 @@ hr{display:none;}
   .mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr 1fr;}
   .mfc-act .rows{grid-template-columns:1fr;}
 }
+.mfc-fc{background:#F7F8FA;border:1px solid #E8EBF1;border-left:3px solid #B08A4E;
+  border-radius:12px;padding:12px 18px;margin:8px 0 12px;}
+.mfc-fc .hd{font-size:11px;font-weight:800;letter-spacing:1.4px;color:#B08A4E;margin-bottom:4px;}
+.mfc-fc .big{font-size:20px;font-weight:800;color:#1E2430;}
+.mfc-fc .dl{margin-left:14px;font-size:16px;}
 @media (max-width:560px){.mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr;}}
 </style>
 """
@@ -1792,6 +1926,8 @@ def render(month, snap, nav=None):
             "<span class='l3'>80%予測レンジ</span>"
             f"<span class='l2'>前年同月 {man(py)}</span>"
             "</div>", unsafe_allow_html=True)
+    # グラフは上下しか分からないので、何が動いてそうなったかを直下に添える。
+    _render_forecast_change(month, snap)
     st.markdown('<div class="mfc-sec">月末着地見込みの比較（基準・保守・参考・前年）</div>', unsafe_allow_html=True)
     st.markdown(
         "<div class='mfc-cards4'>"
