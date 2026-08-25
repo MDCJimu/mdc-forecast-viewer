@@ -2378,5 +2378,313 @@ class TestForecastChangeInApp(unittest.TestCase):
             self.assertNotIn(bad, body, bad)
 
 
+# ======================================================================
+class TestDailyBreakdownInSnapshot(unittest.TestCase):
+    """スナップショットに入れた日別内訳が、既存の合計と1円もずれないこと。
+
+    日別を足し戻して月末予測にならないなら、画面に出す意味がない。
+    ここは丸め前の値で検算する。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        here = os.path.dirname(os.path.abspath(__file__))
+        p = os.path.join(os.path.dirname(here), "outputs",
+                         "daily_rolling_forecast.json")
+        if not os.path.isfile(p):
+            raise unittest.SkipTest("outputs/daily_rolling_forecast.json が無い")
+        with io.open(p, encoding="utf-8") as fh:
+            cls.roll = json.load(fh)
+        if cls.roll.get("daily_expected") is None:
+            raise unittest.SkipTest("daily_expected を持たない世代")
+
+    def _sum(self, rows, key):
+        return sum(r[key] for r in rows)
+
+    def _exp(self, status):
+        return [r for r in self.roll["daily_expected"] if r["status"] == status]
+
+    # ---- 4. 日別実績の突合（必須テスト）----
+    def test_daily_actual_sums_to_the_existing_total_to_the_yen(self):
+        """日別actualの月内合計＝既存の確定外来3区分。1円単位で一致すること。"""
+        got = self._sum(self.roll["daily_actual"], "total")
+        self.assertEqual(round(got), self.roll["actual_to_date_total"])
+        self.assertLess(abs(got - self.roll["actual_to_date_total"]), 1e-6,
+                        f"1円未満のずれも許さない: {got}")
+
+    def test_daily_actual_segments_sum_to_the_confirmed_detail(self):
+        conf = self.roll["forecast_composition"]["confirmed_actual_detail"]
+        for key, comp in (("outpatient_insurance", "gairai"),
+                          ("selfpay", "jihi"), ("product", "buppin")):
+            got = self._sum(self.roll["daily_actual"], key)
+            self.assertEqual(round(got), conf[comp], key)
+
+    def test_daily_actual_row_total_is_the_sum_of_three(self):
+        for r in self.roll["daily_actual"]:
+            self.assertAlmostEqual(
+                r["total"],
+                r["outpatient_insurance"] + r["selfpay"] + r["product"],
+                places=6, msg=r["date"])
+
+    def test_daily_actual_stops_at_actual_data_through(self):
+        last = max(r["date"] for r in self.roll["daily_actual"])
+        self.assertLessEqual(last, self.roll["actual_data_through"])
+
+    # ---- 1. 未丸め合計が既存キーと一致 ----
+    def test_remaining_sums_to_remaining_forecast_total(self):
+        got = self._sum(self._exp("remaining"), "total")
+        self.assertEqual(round(got), self.roll["remaining_forecast_total"])
+        # 丸め前の差は yen() の丸め分（1円未満）だけ
+        self.assertLess(abs(got - self.roll["remaining_forecast_total"]), 1.0)
+
+    def test_elapsed_sums_to_elapsed_unrecorded_total(self):
+        got = self._sum(self._exp("elapsed_unrecorded"), "total")
+        self.assertEqual(round(got), self.roll["elapsed_unrecorded_total"])
+        self.assertLess(abs(got - self.roll["elapsed_unrecorded_total"]), 1.0)
+
+    def test_values_are_not_pre_rounded(self):
+        """丸めてから足すと残差が出るので、保存側は丸めない。"""
+        vals = [r["total"] for r in self.roll["daily_expected"]]
+        self.assertTrue(any(abs(v - round(v)) > 1e-9 for v in vals),
+                        "日別予測が整数に丸められている（合計がずれる原因）")
+
+    def test_expected_row_total_is_the_sum_of_three(self):
+        for r in self.roll["daily_expected"]:
+            self.assertAlmostEqual(
+                r["total"],
+                r["outpatient_insurance"] + r["selfpay"] + r["product"],
+                places=6, msg=r["date"])
+
+    # ---- 2. status の意味 ----
+    def test_remaining_is_always_after_as_of(self):
+        for r in self._exp("remaining"):
+            self.assertGreater(r["date"], self.roll["as_of_date"], r["date"])
+
+    def test_elapsed_is_never_after_as_of(self):
+        for r in self._exp("elapsed_unrecorded"):
+            self.assertLessEqual(r["date"], self.roll["as_of_date"], r["date"])
+
+    def test_only_two_statuses(self):
+        self.assertEqual({r["status"] for r in self.roll["daily_expected"]},
+                         {"remaining", "elapsed_unrecorded"})
+
+    # ---- 9. 公開範囲 ----
+    def test_rows_carry_no_patient_information(self):
+        allowed_exp = {"date", "status", "outpatient_insurance", "selfpay",
+                       "product", "total"}
+        allowed_act = allowed_exp - {"status"}
+        for r in self.roll["daily_expected"]:
+            self.assertEqual(set(r), allowed_exp, r)
+        for r in self.roll["daily_actual"]:
+            self.assertEqual(set(r), allowed_act, r)
+
+    def test_no_visit_or_care_in_daily_rows(self):
+        """訪問保険・介護は日別モデルを持たないので入れない。"""
+        for r in self.roll["daily_expected"] + self.roll["daily_actual"]:
+            for k in r:
+                self.assertNotIn(k, ("visit_insurance", "homon", "care", "kaigo"))
+
+
+# ======================================================================
+class TestDailyVsExpected(unittest.TestCase):
+    """事前予測 vs 実績。基準時点の取り方を固定する。"""
+
+    def roll(self, as_of, expected=None, actual=None):
+        r = {"as_of_date": as_of, "target_month": "2026-08"}
+        if expected is not None:
+            r["daily_expected"] = expected
+        if actual is not None:
+            r["daily_actual"] = actual
+        return r
+
+    def exp(self, date, status, gi, jh, bp):
+        return {"date": date, "status": status, "outpatient_insurance": gi,
+                "selfpay": jh, "product": bp, "total": gi + jh + bp}
+
+    def act(self, date, gi, jh, bp):
+        return {"date": date, "outpatient_insurance": gi, "selfpay": jh,
+                "product": bp, "total": gi + jh + bp}
+
+    # ---- 基準時点の選び方 ----
+    def test_uses_the_last_snapshot_where_the_day_was_remaining(self):
+        """Dがremainingだった最後のsnapshot＝as_ofが最大のものを使う。"""
+        snaps = [
+            self.roll("2026-08-23", [self.exp("2026-08-26", "remaining",
+                                              100, 100, 10)]),
+            self.roll("2026-08-25", [self.exp("2026-08-26", "remaining",
+                                              500, 300, 20)]),
+            self.roll("2026-08-27", actual=[self.act("2026-08-26", 400, 200, 30)]),
+        ]
+        r = MR.build_daily_vs_expected(snaps)
+        self.assertTrue(r["available"])
+        d = r["latest"]
+        self.assertEqual(d["expected_from"], "2026-08-25")
+        seg = {s["key"]: s for s in d["segments"]}
+        self.assertEqual(seg["outpatient_insurance"]["expected"], 500)
+        self.assertEqual(seg["outpatient_insurance"]["actual"], 400)
+        self.assertEqual(seg["outpatient_insurance"]["diff"], -100)
+
+    def test_elapsed_unrecorded_is_never_used_as_the_prior_forecast(self):
+        """診療日が終わった後の見込みは事前予測にしない。"""
+        snaps = [
+            self.roll("2026-08-25", [self.exp("2026-08-26", "remaining",
+                                              500, 300, 20)]),
+            # 8/26 が終わったあとの実績反映待ちの見込み（使ってはいけない）
+            self.roll("2026-08-26", [self.exp("2026-08-26", "elapsed_unrecorded",
+                                              410, 210, 31)]),
+            self.roll("2026-08-27", actual=[self.act("2026-08-26", 400, 200, 30)]),
+        ]
+        r = MR.build_daily_vs_expected(snaps)
+        d = r["latest"]
+        self.assertEqual(d["expected_from"], "2026-08-25")
+        seg = {s["key"]: s for s in d["segments"]}
+        self.assertEqual(seg["total"]["expected"], 820)      # 500+300+20
+        self.assertNotEqual(seg["total"]["expected"], 651)   # elapsed のほうではない
+
+    def test_no_history_is_not_fabricated(self):
+        """当時保存が無い日は行を作らない（曜日平均で作り直さない）。"""
+        snaps = [self.roll("2026-08-27",
+                           actual=[self.act("2026-08-26", 400, 200, 30)])]
+        r = MR.build_daily_vs_expected(snaps)
+        self.assertFalse(r["available"])
+        self.assertEqual(r["reason"], "no_expected_history")
+        self.assertEqual(r["days"], [])
+        self.assertIn("2026-08-26", r["no_history_dates"])
+
+    def test_days_without_actual_are_not_shown(self):
+        """まだ確定していない日は予想対実績にしない。"""
+        snaps = [
+            self.roll("2026-08-25", [self.exp("2026-08-31", "remaining",
+                                              500, 300, 20)]),
+            self.roll("2026-08-27", actual=[]),
+        ]
+        r = MR.build_daily_vs_expected(snaps)
+        self.assertFalse(r["available"])
+        self.assertEqual(r["reason"], "no_daily_actual")
+
+    def test_old_snapshots_without_the_keys_do_not_crash(self):
+        snaps = [{"as_of_date": "2026-08-21"}, {"as_of_date": "2026-08-22"}]
+        r = MR.build_daily_vs_expected(snaps)
+        self.assertFalse(r["available"])
+        self.assertEqual(r["reason"], "no_daily_actual")
+
+    def test_empty_input(self):
+        r = MR.build_daily_vs_expected([])
+        self.assertFalse(r["available"])
+        self.assertEqual(r["reason"], "no_snapshot")
+
+    # ---- 表示内容 ----
+    def test_segments_and_total(self):
+        snaps = [
+            self.roll("2026-08-25", [self.exp("2026-08-26", "remaining",
+                                              550_000, 300_000, 11_000)]),
+            self.roll("2026-08-27",
+                      actual=[self.act("2026-08-26", 512_000, 118_000, 9_800)]),
+        ]
+        d = MR.build_daily_vs_expected(snaps)["latest"]
+        self.assertEqual([s["label"] for s in d["segments"]],
+                         ["外来保険", "自費", "物販", "合計"])
+        seg = {s["label"]: s for s in d["segments"]}
+        self.assertEqual(seg["自費"]["diff"], -182_000)
+        self.assertEqual(seg["合計"]["expected"], 861_000)
+        self.assertEqual(seg["合計"]["actual"], 639_800)
+        self.assertEqual(d["diff"], 639_800 - 861_000)
+
+    def test_headline_may_say_above_or_below_expectation(self):
+        """正式な比較ができたときだけ『予想を下回った』と言ってよい。"""
+        snaps = [
+            self.roll("2026-08-25", [self.exp("2026-08-26", "remaining",
+                                              550_000, 300_000, 11_000)]),
+            self.roll("2026-08-27",
+                      actual=[self.act("2026-08-26", 512_000, 118_000, 9_800)]),
+        ]
+        h = MR.build_daily_vs_expected(snaps)["headline"]
+        self.assertIn("8/26", h)
+        self.assertIn("事前予測を", h)
+        self.assertIn("下回りました", h)
+        self.assertIn("自費", h)
+
+    def test_headline_says_above_when_actual_is_higher(self):
+        snaps = [
+            self.roll("2026-08-25", [self.exp("2026-08-26", "remaining",
+                                              400_000, 100_000, 5_000)]),
+            self.roll("2026-08-27",
+                      actual=[self.act("2026-08-26", 512_000, 118_000, 9_800)]),
+        ]
+        self.assertIn("上回りました",
+                      MR.build_daily_vs_expected(snaps)["headline"])
+
+    def test_most_recent_day_comes_first(self):
+        snaps = [
+            self.roll("2026-08-24", [self.exp("2026-08-25", "remaining",
+                                              100, 100, 10)]),
+            self.roll("2026-08-25", [self.exp("2026-08-26", "remaining",
+                                              200, 200, 20)]),
+            self.roll("2026-08-27", actual=[self.act("2026-08-25", 90, 90, 9),
+                                            self.act("2026-08-26", 180, 180, 18)]),
+        ]
+        r = MR.build_daily_vs_expected(snaps)
+        self.assertEqual([d["date"] for d in r["days"]],
+                         ["2026-08-26", "2026-08-25"])
+
+    # ---- 6. 月末予測変更と混同しない ----
+    def test_is_a_separate_result_from_the_forecast_change(self):
+        """予想対実績と、月末見込みの変更額を同じキーに入れない。"""
+        self.assertTrue(hasattr(MR, "build_daily_vs_expected"))
+        self.assertTrue(hasattr(MR, "build_forecast_change"))
+        snaps = [
+            self.roll("2026-08-25", [self.exp("2026-08-26", "remaining",
+                                              500, 300, 20)]),
+            self.roll("2026-08-27", actual=[self.act("2026-08-26", 400, 200, 30)]),
+        ]
+        r = MR.build_daily_vs_expected(snaps)
+        # 予測変更（4.6）側のキーを持ち込まない
+        for k in ("items", "bridge", "comment", "from_total", "to_total"):
+            self.assertNotIn(k, r, f"予測変更側のキーが混ざっている: {k}")
+        # 逆に、予測変更側は日別の比較キーを持たない
+        fc = MR.build_forecast_change(
+            {"as_of_date": "2026-08-24"}, {"as_of_date": "2026-08-25"})
+        for k in ("days", "latest", "no_history_dates"):
+            self.assertNotIn(k, fc, f"予想対実績側のキーが混ざっている: {k}")
+
+    def test_note_separates_it_from_the_month_end_change(self):
+        self.assertIn("月末着地見込みの変更額は別のもの", MR.DVE_NOTE)
+        self.assertIn("elapsed_unrecorded", MR.DVE_NOTE)
+        self.assertIn("残り予測に入っていた最後のスナップショット", MR.DVE_NOTE)
+
+
+# ======================================================================
+class TestDailyVsExpectedInApp(unittest.TestCase):
+    """画面側に予想対実績がつながっていること。"""
+
+    def _src(self):
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "streamlit_app.py")
+        with io.open(p, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_block_exists_and_is_separate(self):
+        src = self._src()
+        self.assertIn("def _render_daily_vs_expected(dve):", src)
+        self.assertIn("_render_daily_vs_expected(_dve)", src)
+        # 予測変更ブロックの直後（別ブロック）に置かれていること
+        self.assertLess(src.index("_render_forecast_change(_fc, month,"),
+                        src.index("_render_daily_vs_expected(_dve)"))
+
+    def test_headline_only_when_available(self):
+        src = self._src()
+        self.assertIn("if _dve:", src)
+        self.assertIn("_dve['headline']", src)
+
+    def test_app_does_not_recompute_the_comparison(self):
+        src = self._src()
+        s = src.index("def _render_daily_vs_expected(dve):")
+        e = src.index("def _render_actions(rep):")
+        body = src[s:e]
+        for token in ("daily_expected", "daily_actual", "elapsed_unrecorded"):
+            self.assertNotIn(token, body, token)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -795,6 +795,98 @@ def _render_forecast_change_bridge(fc):
             unsafe_allow_html=True)
 
 
+# ======================================================================
+# 確定した診療日の「事前予測 vs 実績」
+#   上の「直近の予測変更」とは別のブロックにする。
+#     予測変更 … 前回の基準日から月末着地見込みがどう動いたか
+#     予想対実績 … 終わった1日について、始まる前の見込みと確定実績の差
+#   月末見込みには残り期間の水準・予約補正も効くので、
+#   2つを「AはBが原因」と結びつけない。
+#
+#   日別の見込みが保存され始めたのはこの機能のリリース以降なので、
+#   材料がそろうまでブロックごと出さない（後付けで作らない）。
+# ======================================================================
+def _load_daily_vs_expected(month):
+    """その月のスナップショットを集めて、事前予測 vs 実績を作る。"""
+    if MR is None:
+        return None
+    rolls = []
+    for n in list_snapshots(month):
+        r = _snap_roll(month, n)
+        if r:
+            rolls.append(r)
+    if not rolls:
+        return None
+    dve = MR.build_daily_vs_expected(rolls)
+    return dve if dve.get("available") else None
+
+
+def _dve_table(day):
+    tr = []
+    for sg in day["segments"]:
+        cls = "" if sg["key"] != "total" else "grp"
+        tr.append(f"<tr class='{cls}'><td>{_html.escape(sg['label'])}</td>"
+                  f"<td class='n'>{man(sg['expected'])}</td>"
+                  f"<td class='n'>{man(sg['actual'])}</td>"
+                  f"<td class='n {signclass(sg['diff'])}'>"
+                  f"{MR.yen_sman(sg['diff'])}</td></tr>")
+    return ("<table class='mfc-ctab'><tr><th>区分</th>"
+            "<th style='text-align:right'>事前予測</th>"
+            "<th style='text-align:right'>確定実績</th>"
+            "<th style='text-align:right'>予想比</th></tr>"
+            + "".join(tr) + "</table>")
+
+
+def _render_daily_vs_expected(dve):
+    if not dve:
+        return
+    day = dve["latest"]
+    st.markdown('<div class="mfc-sec">確定した診療日の予想対実績</div>',
+                unsafe_allow_html=True)
+    st.markdown(
+        "<div class='mfc-fc'>"
+        f"<div class='hd'>{_html.escape(str(day['date']))}</div>"
+        f"<div class='big'>事前予測 {man(day['segments'][-1]['expected'])}"
+        f" → 実績 {man(day['segments'][-1]['actual'])}"
+        f"<span class='dl {signclass(day['diff'])}'>"
+        f"{MR.yen_sman(day['diff'])}</span></div>"
+        "</div>", unsafe_allow_html=True)
+    st.markdown(_dve_table(day), unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='mfc-note'>事前予測は "
+        f"{_html.escape(str(day['expected_from']))} 基準日のスナップショットに"
+        "保存されていた、この日がまだ残り予測だった時点の見込みです。"
+        "月末着地見込みの変更額とは別のものです。</div>",
+        unsafe_allow_html=True)
+
+    past = dve["days"][1:]
+    if past:
+        with st.expander("過去の診療日の予想対実績を見る", expanded=False):
+            tr = []
+            for d in past:
+                by = {sg["key"]: sg for sg in d["segments"]}
+                tds = "".join(
+                    f"<td class='n {signclass(by[k]['diff'])}'>"
+                    f"{MR.yen_sman(by[k]['diff'])}</td>"
+                    for k in ("outpatient_insurance", "selfpay", "product"))
+                tr.append(f"<tr><td>{_html.escape(str(d['date']))}</td>"
+                          f"<td class='n'>{man(by['total']['expected'])}</td>"
+                          f"<td class='n'>{man(by['total']['actual'])}</td>"
+                          f"<td class='n {signclass(by['total']['diff'])}'>"
+                          f"<b>{MR.yen_sman(by['total']['diff'])}</b></td>{tds}</tr>")
+            st.markdown(
+                "<table class='mfc-ctab'><tr><th>診療日</th>"
+                "<th style='text-align:right'>事前予測</th>"
+                "<th style='text-align:right'>実績</th>"
+                "<th style='text-align:right'>予想比</th>"
+                "<th style='text-align:right'>外来保険</th>"
+                "<th style='text-align:right'>自費</th>"
+                "<th style='text-align:right'>物販</th></tr>"
+                + "".join(tr) + "</table>"
+                f"<div class='mfc-note'>{_html.escape(dve['note'])}</div>",
+                unsafe_allow_html=True)
+
+
 def _render_actions(rep):
     """今月の打ち手。1件ごとに 対象／理由／確認する数字／判断 を出す。"""
     acts = (rep or {}).get("actions") or []
@@ -1685,6 +1777,7 @@ def render(month, snap, nav=None):
 
     # 前回スナップショットとの差。結論の1行とグラフ直下の両方で使うので先に作る。
     _fc, _fc_snaps, _fc_i = _load_forecast_change(month, snap)
+    _dve = _load_daily_vs_expected(month)
 
     st.markdown('<div class="mfc-tier"><span class="n">SUMMARY</span>今日の結論'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
@@ -1761,6 +1854,11 @@ def render(month, snap, nav=None):
     if _fc:
         _fc_line = (f"<div class='lead' style='margin-top:6px'>"
                     f"{_html.escape(_fc['headline'])}</div>")
+    # 事前予測 vs 実績は、正式な材料がそろった日だけ1行出す。
+    # 日別の見込みを保存し始める前の期間は何も出さない（後付けで作らない）。
+    if _dve:
+        _fc_line += (f"<div class='lead' style='margin-top:6px'>"
+                     f"{_html.escape(_dve['headline'])}</div>")
     st.markdown(
         "<div class='mfc-act'><div class='k'>今日の結論と論点</div>"
         f"<div class='lead'>{lead}</div>{_fc_line}"
@@ -1952,6 +2050,8 @@ def render(month, snap, nav=None):
             "</div>", unsafe_allow_html=True)
     # グラフは上下しか分からないので、どの区分が動いてそうなったかを直下に添える。
     _render_forecast_change(_fc, month, _fc_snaps, _fc_i)
+    # 別ブロック。月末見込みの変化（上）と、1日の予想対実績（下）は違うもの。
+    _render_daily_vs_expected(_dve)
     st.markdown('<div class="mfc-sec">月末着地見込みの比較（基準・保守・参考・前年）</div>', unsafe_allow_html=True)
     st.markdown(
         "<div class='mfc-cards4'>"

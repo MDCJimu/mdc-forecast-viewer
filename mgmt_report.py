@@ -2180,6 +2180,129 @@ def build_forecast_change(prev_roll, roll):
 
 
 # ======================================================================
+# 4.7 診療日の「事前予測 vs 実績」
+# ======================================================================
+# 4.6（予測変更の内訳）とは別物。混ぜてはいけない。
+#
+#   4.6  前回の基準日から、月末着地見込みがどう動いたか
+#   4.7  終わった1日について、始まる前の見込みと確定実績がどう違ったか
+#
+# 月末見込みの変更額と、1日の予想対実績差は一致しない。月末見込みには
+# 残り期間の水準・予約補正・その他モデル入力も効くため、
+# 「Aの変化はBが原因」と結びつけない。
+#
+# 事前予測の正式な取り方（これ以外は使わない）
+#   日付Dの事前予測 = D が status="remaining" として入っている
+#                     スナップショットのうち、as_of が最も新しいもの
+#   remaining は date > as_of の日なので、これは必ず「Dが始まる前」の見込み。
+#   status="elapsed_unrecorded"（診療が終わった後の実績反映待ち）は、
+#   その日の結果を一部織り込んでいる可能性があるため事前予測には使わない。
+#
+# 当時保存されていない日は「予測履歴なし」。曜日平均などから後付けで
+# 作り直して「当時の予測」と称することはしない。
+DVE_TITLE = "確定した診療日の予想対実績"
+DVE_NOTE = (
+    "事前予測は、その診療日がまだ残り予測に入っていた最後のスナップショットの値です。"
+    "実績反映待ち（elapsed_unrecorded）の見込みは、診療日が終わった後の状態を"
+    "含むため使っていません。"
+    "日別の予想対実績と、月末着地見込みの変更額は別のものです。")
+DVE_NO_HISTORY = "予測履歴なし"
+
+# 表示順と呼び方。daily_expected / daily_actual のキーと1対1。
+DVE_SEGMENTS = (("outpatient_insurance", "外来保険"),
+                ("selfpay", "自費"),
+                ("product", "物販"),
+                ("total", "合計"))
+
+
+def _dve_index(rolls):
+    """[(as_of, roll)] を as_of 昇順で返す。読めないものは落とす。"""
+    out = []
+    for r in rolls or []:
+        if isinstance(r, dict) and r.get("as_of_date"):
+            out.append((r["as_of_date"], r))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def build_daily_vs_expected(rolls, limit=8):
+    """確定した診療日について、事前予測と実績を突き合わせる。
+
+    rolls は同じ対象月のスナップショット（順不同で可）。
+    材料がそろわない日は行を作らない（推定も後付け再計算もしない）。
+    """
+    out = {"available": False, "reason": "", "title": DVE_TITLE,
+           "note": DVE_NOTE, "days": [], "latest": None, "headline": "",
+           "no_history_dates": []}
+    idx = _dve_index(rolls)
+    if not idx:
+        out["reason"] = "no_snapshot"
+        return out
+
+    # 実績は最新スナップショットのものを使う（後日訂正が入れば最新が正）。
+    latest_roll = idx[-1][1]
+    actual = {r["date"]: r for r in (latest_roll.get("daily_actual") or [])}
+    if not actual:
+        out["reason"] = "no_daily_actual"
+        return out
+
+    # 日付Dごとに「Dがremainingだった最後のスナップショット」を探す。
+    expected, src = {}, {}
+    for as_of, roll in idx:                      # as_of 昇順なので後勝ち
+        for row in (roll.get("daily_expected") or []):
+            if row.get("status") != "remaining":
+                continue
+            d = row.get("date")
+            if d and as_of < d:                  # remaining の定義どおりだが念のため
+                expected[d] = row
+                src[d] = as_of
+
+    days = []
+    for d in sorted(actual, reverse=True):
+        e = expected.get(d)
+        if e is None:
+            out["no_history_dates"].append(d)
+            continue
+        a = actual[d]
+        row = {"date": d, "expected_from": src[d], "segments": []}
+        for key, lb in DVE_SEGMENTS:
+            ev, av = f_(e.get(key)), f_(a.get(key))
+            row["segments"].append({
+                "key": key, "label": lb, "expected": ev, "actual": av,
+                "diff": (av - ev) if (ev is not None and av is not None) else None,
+                "rate": rate(av, ev)})
+        row["diff"] = {s["key"]: s["diff"] for s in row["segments"]}["total"]
+        days.append(row)
+        if len(days) >= limit:
+            break
+
+    if not days:
+        out["reason"] = "no_expected_history"
+        return out
+
+    out["days"] = days
+    out["latest"] = days[0]
+    out["available"] = True
+
+    # --- ファーストビュー用の1文（最新の1日だけ）---
+    top = days[0]
+    seg = {s["key"]: s for s in top["segments"]}
+    t = seg["total"]
+    verb = ("下回りました" if t["diff"] < 0 else
+            "上回りました" if t["diff"] > 0 else "ほぼ一致しました")
+    h = (f"直近で確定した{_md(top['date'])}実績は事前予測を"
+         f"{yen_man(abs(t['diff']))}{verb}。")
+    # 効きの大きい区分を1つだけ添える（合計は除く）
+    parts = [s for s in top["segments"] if s["key"] != "total"
+             and s["diff"] is not None and round(s["diff"] / MAN) != 0]
+    if parts:
+        big = max(parts, key=lambda s: abs(s["diff"]))
+        h += f"特に{big['label']}が{yen_sman(big['diff'])}でした。"
+    out["headline"] = h
+    return out
+
+
+# ======================================================================
 # 5. 構造変化（診療日数の変化・通常営業ベースとの差）
 # ======================================================================
 def _structure(f, cap):
