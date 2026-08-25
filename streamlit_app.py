@@ -656,130 +656,142 @@ def _render_outpatient_value(rep):
 
 # ======================================================================
 # 予測変更の内訳（「日次予測の推移」グラフの直下）
-#   グラフは「上がった／下がった」しか分からない。何が動いてそうなったかを
-#   スナップショット間の実データだけで割って添える。推測は書かない。
-#   名称は「予測変更の主な内訳」で固定する（「原因」「主因」とは呼ばない。
-#   残り予測から外れた日と、新たに確定した実績の日が同じとは限らないため）。
+#   グラフは「上がった／下がった」しか分からない。どの売上区分の見込みが動いて
+#   そうなったのかを、スナップショット間の実データだけで添える。
+#
+#   経営画面に出すのは区分別だけ。「残り予測対象が1日減少」のようなバケット移動は
+#   日付が進めば必ず起きる機械的な動きで、売上の良し悪しではない。
+#   経営上の理由と取り違えられるため、内部監査用の折りたたみへ隔離する。
 # ======================================================================
 def _snap_roll(month, snap):
     """スナップショットの daily_rolling_forecast.json。無ければ None。"""
     return read_json(os.path.join(DATA, month, "snapshots", snap, F_ROLL))
 
 
-def _fc_rows_html(items, residual):
+def _load_forecast_change(month, snap):
+    """(内訳, スナップショット一覧, 位置) を返す。作れなければ (None, [], -1)。"""
+    if MR is None:
+        return None, [], -1
+    snaps = list_snapshots(month)          # 新しい順
+    if not snaps or snap not in snaps:
+        return None, [], -1
+    i = snaps.index(snap)
+    if i + 1 >= len(snaps):
+        return None, snaps, i               # 比較できる前回が無い（月初など）
+    fc = MR.build_forecast_change(_snap_roll(month, snaps[i + 1]),
+                                  _snap_roll(month, snap))
+    return (fc if fc.get("available") else None), snaps, i
+
+
+def _fc_segment_table(fc):
+    """どの売上区分の見込みが動いたか。経営画面のメイン。"""
     tr = []
-    for i in items:
-        tr.append(f"<tr><td>{_html.escape(i['label'])}</td>"
-                  f"<td class='n {signclass(i['yen'])}'>{MR.yen_sman(i['yen'])}</td>"
-                  f"<td class='s'>{_html.escape(i.get('how', ''))}</td></tr>")
-    if residual is not None:
-        tr.append(f"<tr><td>説明できない残差</td>"
-                  f"<td class='n {signclass(residual)}'>{MR.yen_sman(residual)}</td>"
-                  f"<td class='s'>内訳で説明しきれなかった分（丸め誤差を含む）</td></tr>")
-    return ("<table class='mfc-ctab'><tr><th>予測変更の主な内訳</th>"
-            "<th style='text-align:right'>金額</th><th>数え方</th></tr>"
+    for x in fc["segments"]:
+        tr.append(f"<tr><td>{_html.escape(x['label'])}</td>"
+                  f"<td class='n'>{man(x['from'])}</td>"
+                  f"<td class='n'>{man(x['to'])}</td>"
+                  f"<td class='n {signclass(x['diff'])}'>"
+                  f"{MR.yen_sman(x['diff'])}</td></tr>")
+    tot = sum(x["diff"] for x in fc["segments"])
+    tr.append(f"<tr><td><b>合計</b></td><td class='n'></td><td class='n'></td>"
+              f"<td class='n {signclass(tot)}'><b>{MR.yen_sman(tot)}</b></td></tr>")
+    return ("<table class='mfc-ctab'>"
+            f"<tr><th>{_html.escape(fc['subtitle'])}</th>"
+            f"<th style='text-align:right'>{_html.escape(fc['from_label'])}</th>"
+            f"<th style='text-align:right'>{_html.escape(fc['to_label'])}</th>"
+            "<th style='text-align:right'>変化</th></tr>"
             + "".join(tr) + "</table>")
 
 
-def _render_forecast_change(month, snap):
+def _render_forecast_change(fc, month, snaps, i):
     """直近の予測変更を、グラフの直下に出す。
 
-    比べる前のスナップショットが無い月初や、内訳に必要なキーを持たない
-    古いスナップショットでは、ブロックごと出さない（推定値は作らない）。
+    比較できる前回が無い月初や、内訳に必要なキーを持たない古いスナップショットでは
+    ブロックごと出さない（推定値は作らない）。
     """
-    if MR is None:
+    if not fc:
         return
-    snaps = list_snapshots(month)          # 新しい順
-    if not snaps or snap not in snaps:
-        return
-    i = snaps.index(snap)
-    if i + 1 >= len(snaps):
-        return                              # 比較できる前回が無い（月初など）
-    cur = _snap_roll(month, snap)
-    prev = _snap_roll(month, snaps[i + 1])
-    fc = MR.build_forecast_change(prev, cur)
-    if not fc.get("available"):
-        return
-
     st.markdown('<div class="mfc-sec">直近の予測変更</div>', unsafe_allow_html=True)
-    cls = signclass(fc["diff"])
     st.markdown(
         "<div class='mfc-fc'>"
         f"<div class='hd'>{_html.escape(fc['label'])}</div>"
         f"<div class='big'>{man(fc['from_total'])} → {man(fc['to_total'])}"
-        f"<span class='dl {cls}'>{MR.yen_sman(fc['diff'])} {fc['direction']}</span></div>"
+        f"<span class='dl {signclass(fc['diff'])}'>"
+        f"{MR.yen_sman(fc['diff'])} {fc['direction']}</span></div>"
         "</div>", unsafe_allow_html=True)
-    st.markdown(_fc_rows_html(fc["items"], fc["residual"]), unsafe_allow_html=True)
+    st.markdown(_fc_segment_table(fc), unsafe_allow_html=True)
     st.markdown(f"<div class='mfc-rep'>{_p(fc['comment'])}</div>",
                 unsafe_allow_html=True)
     st.markdown(f"<div class='mfc-note'>{_html.escape(fc['short_note'])}</div>",
                 unsafe_allow_html=True)
 
-    with st.expander("予測変更の内訳（区分別）と注記", expanded=False):
-        seg = fc.get("segments") or []
-        if seg:
-            tr = []
-            for s in seg:
-                tr.append(f"<tr><td>{_html.escape(s['label'])}</td>"
-                          f"<td class='n'>{man(s['from'])}</td>"
-                          f"<td class='n'>{man(s['to'])}</td>"
-                          f"<td class='n {signclass(s['diff'])}'>"
-                          f"{MR.yen_sman(s['diff'])}</td></tr>")
-            total_d = sum(s["diff"] for s in seg)
-            tr.append(f"<tr><td><b>合計</b></td><td class='n'></td><td class='n'></td>"
-                      f"<td class='n {signclass(total_d)}'><b>"
-                      f"{MR.yen_sman(total_d)}</b></td></tr>")
-            st.markdown(
-                "<table class='mfc-ctab'><tr><th>区分</th>"
-                f"<th style='text-align:right'>{_html.escape(fc['from_label'])}</th>"
-                f"<th style='text-align:right'>{_html.escape(fc['to_label'])}</th>"
-                "<th style='text-align:right'>変化</th></tr>"
-                + "".join(tr) + "</table>", unsafe_allow_html=True)
-            st.markdown("<div class='mfc-note'>月末着地見込みはこの5区分でちょうど"
-                        "作られています。訪問保険・介護は『確度の高い見込み』が"
-                        "『確定実績』へ振り替わっても、月末見込みそのものは動きません。"
-                        "</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='mfc-note'>{_html.escape(fc['note'])}</div>",
-                    unsafe_allow_html=True)
-
     _render_forecast_change_history(month, snaps, i)
+    _render_forecast_change_bridge(fc)
 
 
 def _render_forecast_change_history(month, snaps, i, back=3):
-    """過去の予測変更。常時は出さず、折りたたみの中に直近数件だけ置く。"""
+    """過去の予測変更。常時は出さず、折りたたみに直近数件だけ置く。
+
+    ここも区分別で並べる（バケット移動は経営の判断材料にしない）。
+    """
     rows = []
     for k in range(i, min(i + back, len(snaps) - 1)):
-        cur = _snap_roll(month, snaps[k])
-        prev = _snap_roll(month, snaps[k + 1])
-        fc = MR.build_forecast_change(prev, cur)
+        fc = MR.build_forecast_change(_snap_roll(month, snaps[k + 1]),
+                                      _snap_roll(month, snaps[k]))
         if fc.get("available"):
             rows.append(fc)
     if len(rows) < 2:
         return
+    order = ["外来保険", "自費", "物販", "訪問保険", "介護"]
     with st.expander("過去の予測変更を見る", expanded=False):
-        by = {}
-        for fc in rows:
-            by[fc["label"]] = {i2["key"]: i2["yen"] for i2 in fc["items"]}
         tr = []
-        for fc in reversed(rows):          # 古い順に並べる
-            v = by[fc["label"]]
+        for fc in reversed(rows):          # 古い順
+            by = {x["label"]: x["diff"] for x in fc["segments"]}
             tds = "".join(
-                f"<td class='n {signclass(v.get(k))}'>{MR.yen_sman(v.get(k))}</td>"
-                for k in ("new_confirmed", "remaining_days", "unrecorded",
-                          "remaining_rate"))
+                f"<td class='n {signclass(by.get(lb))}'>{MR.yen_sman(by.get(lb))}</td>"
+                for lb in order)
             tr.append(f"<tr><td>{_html.escape(fc['label'])}</td>"
                       f"<td class='n {signclass(fc['diff'])}'>"
                       f"<b>{MR.yen_sman(fc['diff'])}</b></td>{tds}</tr>")
+        heads = "".join(f"<th style='text-align:right'>{lb}</th>" for lb in order)
         st.markdown(
             "<table class='mfc-ctab'><tr><th>基準日</th>"
-            "<th style='text-align:right'>変更額</th>"
-            "<th style='text-align:right'>新規確定</th>"
-            "<th style='text-align:right'>残り予測対象減</th>"
-            "<th style='text-align:right'>未反映見直し</th>"
-            "<th style='text-align:right'>残り水準見直し</th></tr>"
+            f"<th style='text-align:right'>変更額</th>{heads}</tr>"
             + "".join(tr) + "</table>"
-            "<div class='mfc-note'>各行とも、4項の合計が変更額に一致します"
-            "（訪問保険・介護の月末見込みが動いた月はその分も加わります）。</div>",
+            "<div class='mfc-note'>各行とも、区分別の合計が変更額に一致します。</div>",
+            unsafe_allow_html=True)
+
+
+def _render_forecast_change_bridge(fc):
+    """予測構成バケットの移動。内部監査用で、経営上の理由ではない。
+
+    一番深い折りたたみに置き、開いた最初の行で「経営上の理由ではない」と断る。
+    """
+    br = fc.get("bridge") or {}
+    items = br.get("items") or []
+    if not items:
+        return
+    with st.expander(br.get("title", "予測構成バケットの移動（内部監査用）"),
+                     expanded=False):
+        st.markdown(f"<div class='mfc-warnbox'>{_html.escape(br['caution'])}</div>",
+                    unsafe_allow_html=True)
+        tr = []
+        for i2 in items:
+            tr.append(f"<tr><td>{_html.escape(i2['label'])}</td>"
+                      f"<td class='n {signclass(i2['yen'])}'>"
+                      f"{MR.yen_sman(i2['yen'])}</td>"
+                      f"<td class='s'>{_html.escape(i2.get('how', ''))}</td></tr>")
+        res = br.get("residual")
+        if res is not None:
+            tr.append(f"<tr><td>説明できない残差</td>"
+                      f"<td class='n {signclass(res)}'>{MR.yen_sman(res)}</td>"
+                      f"<td class='s'>内訳で説明しきれなかった分（丸め誤差を含む）"
+                      f"</td></tr>")
+        st.markdown(
+            "<table class='mfc-ctab'><tr><th>バケット</th>"
+            "<th style='text-align:right'>金額</th><th>数え方</th></tr>"
+            + "".join(tr) + "</table>"
+            f"<div class='mfc-note'>{_html.escape(br['note'])}</div>",
             unsafe_allow_html=True)
 
 
@@ -1415,6 +1427,8 @@ hr{display:none;}
 .mfc-fc .hd{font-size:11px;font-weight:800;letter-spacing:1.4px;color:#B08A4E;margin-bottom:4px;}
 .mfc-fc .big{font-size:20px;font-weight:800;color:#1E2430;}
 .mfc-fc .dl{margin-left:14px;font-size:16px;}
+.mfc-warnbox{background:#FFF7ED;border:1px solid #F3D9B5;border-left:3px solid #E0912F;
+  border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:12.5px;color:#6B4A16;}
 @media (max-width:560px){.mfc-cards,.mfc-cards4,.mfc-prog{grid-template-columns:1fr;}}
 </style>
 """
@@ -1669,6 +1683,9 @@ def render(month, snap, nav=None):
     pace_gap = ((remaining_daily_avg / actual_daily_avg - 1) if actual_daily_avg else 0.0)
     vc = fnum(roll.get("visit_care_forecast_total"))
 
+    # 前回スナップショットとの差。結論の1行とグラフ直下の両方で使うので先に作る。
+    _fc, _fc_snaps, _fc_i = _load_forecast_change(month, snap)
+
     st.markdown('<div class="mfc-tier"><span class="n">SUMMARY</span>今日の結論'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
     # 経営の現在地をヒーローへ統合する。並びは
@@ -1737,9 +1754,16 @@ def render(month, snap, nav=None):
     if not lead:
         lead = (f"今月の着地見込みは{man(cur)}、前年同月は{man(py)}で、"
                 f"前年総額比は{sman(yoy)}{yoy_pct}です。{FALLBACK_NOTE}")
+    # 前回の基準日からどう動いたかを、結論の1行目に添える。
+    # ここでは「どの区分の見込みが変わったか」までしか言わない
+    # （実績が予測を下回ったかどうかは、この材料では判定できない）。
+    _fc_line = ""
+    if _fc:
+        _fc_line = (f"<div class='lead' style='margin-top:6px'>"
+                    f"{_html.escape(_fc['headline'])}</div>")
     st.markdown(
         "<div class='mfc-act'><div class='k'>今日の結論と論点</div>"
-        f"<div class='lead'>{lead}</div>"
+        f"<div class='lead'>{lead}</div>{_fc_line}"
         f"<div class='rows'>{rows_html}</div></div>", unsafe_allow_html=True)
 
     st.markdown('<div class="mfc-sec">この見込みの前提</div>', unsafe_allow_html=True)
@@ -1926,8 +1950,8 @@ def render(month, snap, nav=None):
             "<span class='l3'>80%予測レンジ</span>"
             f"<span class='l2'>前年同月 {man(py)}</span>"
             "</div>", unsafe_allow_html=True)
-    # グラフは上下しか分からないので、何が動いてそうなったかを直下に添える。
-    _render_forecast_change(month, snap)
+    # グラフは上下しか分からないので、どの区分が動いてそうなったかを直下に添える。
+    _render_forecast_change(_fc, month, _fc_snaps, _fc_i)
     st.markdown('<div class="mfc-sec">月末着地見込みの比較（基準・保守・参考・前年）</div>', unsafe_allow_html=True)
     st.markdown(
         "<div class='mfc-cards4'>"

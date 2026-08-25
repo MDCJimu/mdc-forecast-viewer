@@ -1993,12 +1993,25 @@ def _summary(f, target, levels, position):
 #   確定したのは 8/23〜8/24 のデータだった。特定日の「予想 対 実績」を
 #   突き合わせられるデータはスナップショットに保存されていない。
 #   そのため名称は「予測変更の主な内訳」で固定する。
-FC_TITLE = "予測変更の主な内訳"
-FC_NOTE = (
+# 経営画面に出すのは「どの売上区分の見込みが動いたか」だけ。
+# バケット移動（残り予測 → 経過未反映 → 確定実績）は、日付が進めば必ず起きる
+# 機械的な動きで、売上の良し悪しではない。経営上の理由として読ませてはいけない。
+FC_TITLE = "予測変更の内訳"
+FC_SUBTITLE = "どの売上区分の見込みが変わったか"
+FC_SHORT_NOTE = (
+    "※ どの区分の見込みが動いたかを示すものです。"
+    "実績が予測を上回った・下回ったことを示すものではありません。")
+
+# ここから下は内部監査用。経営上の理由ではないことを、文言自体に必ず持たせる。
+FC_BRIDGE_TITLE = "予測構成バケットの移動（内部監査用）"
+FC_BRIDGE_CAUTION = (
+    "以下はスナップショット同士を機械的に突き合わせた技術的な内訳です。"
+    "日付が進めば残り予測の対象日数が減るのは当然で、それ自体は売上の"
+    "良し悪しを意味しません。経営上の理由としては読まないでください。")
+FC_BRIDGE_NOTE = (
     "残り予測から外れた日と、新たに確定した実績の日は必ずしも同じ日ではありません。"
     "この内訳は予測構成の変化を示すもので、"
     "特定日の『予想対実績』を示すものではありません。")
-FC_SHORT_NOTE = ("※ 内訳は予測構成の変化です。特定日の『予想対実績』ではありません。")
 
 # 確定実績のうち外来3区分（訪問保険・介護は別項で扱う）
 FC_OP_KEYS = ("gairai", "jihi", "buppin")
@@ -2008,6 +2021,10 @@ FC_SEGMENTS = (("outpatient_insurance_forecast", "外来保険"),
                ("product_forecast", "物販"),
                ("visit_insurance_forecast", "訪問保険"),
                ("care_forecast", "介護"))
+# 文中での呼び方。表では「自費」で足りるが、文章では何の数字かを言い切る。
+FC_SEG_IN_TEXT = {"外来保険": "外来保険見込み", "自費": "自費見込み",
+                  "物販": "物販見込み", "訪問保険": "訪問保険見込み",
+                  "介護": "介護見込み"}
 
 
 def _fc_conf(roll, key):
@@ -2029,13 +2046,18 @@ def build_forecast_change(prev_roll, roll):
     prev_roll が無い／必要なキーが無い場合は available=False を返し、
     値の推測はしない（画面はブロックごと出さない）。
     """
-    out = {"available": False, "reason": "", "title": FC_TITLE,
-           "note": FC_NOTE, "short_note": FC_SHORT_NOTE,
+    out = {"available": False, "reason": "",
+           "title": FC_TITLE, "subtitle": FC_SUBTITLE,
+           "short_note": FC_SHORT_NOTE,
            "from_as_of": None, "to_as_of": None, "label": "",
            "from_label": "", "to_label": "",
            "from_total": None, "to_total": None, "diff": None,
-           "direction": "", "items": [], "residual": None,
-           "segments": [], "comment": ""}
+           "direction": "",
+           # 経営画面に出すのはこの2つ
+           "segments": [], "comment": "", "headline": "",
+           # 内部監査用（経営上の理由ではない）
+           "bridge": {"title": FC_BRIDGE_TITLE, "caution": FC_BRIDGE_CAUTION,
+                      "note": FC_BRIDGE_NOTE, "items": [], "residual": None}}
     if not roll:
         out["reason"] = "no_snapshot"
         return out
@@ -2099,12 +2121,13 @@ def build_forecast_change(prev_roll, roll):
     else:
         days_label = days_cmt = "残り予測対象の日数変化"
 
-    out["items"] = [
+    # 技術ブリッジ（内部監査用）。経営画面のメインには出さない。
+    out["bridge"]["items"] = [
         {"key": "new_confirmed", "label": "新たに確定した外来実績", "yen": new_conf,
          "how": "外来保険＋自費＋物販の確定実績の増分"},
         {"key": "remaining_days", "label": days_label, "yen": days_term,
-         "comment_label": days_cmt,
-         "how": f"前回の1日あたり水準{r0:,.0f}円 × {dn:+d}日"},
+         "how": f"前回の1日あたり水準{r0:,.0f}円 × {dn:+d}日"
+                "（日付が進めば必ず起きる移動で、売上の良し悪しではない）"},
         {"key": "unrecorded", "label": "経過・売上未反映日の見込み見直し", "yen": unrec,
          "how": "まだ売上が入っていない経過日の見込み額の変化"},
         {"key": "remaining_rate", "label": "残り予測の1日あたり水準見直し",
@@ -2112,27 +2135,46 @@ def build_forecast_change(prev_roll, roll):
         {"key": "visit_care", "label": "訪問保険・介護の月末見込み", "yen": vc,
          "how": "確定実績への振替は総額を動かさない"},
     ]
-    explained = sum(i["yen"] for i in out["items"])
-    out["residual"] = diff - explained
+    out["bridge"]["residual"] = diff - sum(i["yen"] for i in out["bridge"]["items"])
 
-    # --- 区分別（総額を動かした実体。詳細側に置く）---
+    # --- 区分別（経営画面のメイン）---
+    # 総額を動かした実体はここ。月末着地見込みはこの5区分でちょうど作られる。
     for k, lb in FC_SEGMENTS:
         v_a, v_b = f_(a.get(k)), f_(b.get(k))
         if v_a is None or v_b is None:
             continue
-        out["segments"].append({"label": lb, "from": v_a, "to": v_b,
+        out["segments"].append({"key": k, "label": lb, "from": v_a, "to": v_b,
                                 "diff": v_b - v_a})
+    # 効きの大きい順に並べる（表も文章も同じ順）
+    out["segments"].sort(key=lambda x: -abs(x["diff"]))
 
-    # --- コメント（因果を作らない。動いた内訳を並べるだけ）---
-    moved = [i for i in out["items"] if round(i["yen"] / MAN) != 0]
-    body = "、".join(f"{i.get('comment_label', i['label'])}が{yen_sman(i['yen'])}"
-                    for i in moved)
-    out["comment"] = (
-        f"{_md(out['from_as_of'])}から{_md(out['to_as_of'])}にかけて、"
-        f"月末見込みは{yen_man(abs(diff))}"
-        + ("下がりました。" if diff < 0 else "上がりました。" if diff > 0
-           else "変わりませんでした。")
-        + (f"内訳は、{body}です。" if body else ""))
+    moved = [x for x in out["segments"] if round(x["diff"] / MAN) != 0]
+    still = [x for x in out["segments"] if round(x["diff"] / MAN) == 0]
+
+    def _seg_txt(x):
+        return f"{FC_SEG_IN_TEXT.get(x['label'], x['label'])}{yen_sman(x['diff'])}"
+
+    verb = ("下方修正しました。" if diff < 0 else
+            "上方修正しました。" if diff > 0 else "据え置きました。")
+    c = (f"{out['from_label']}から{out['to_label']}にかけて"
+         f"月末着地見込みを{yen_man(abs(diff))}{verb}")
+    if moved:
+        c += "内訳は、" + "、".join(_seg_txt(x) for x in moved) + "です。"
+    if still:
+        c += ("".join(_join([x["label"] for x in still]))
+              + "の月末見込みは変わっていません。")
+    out["comment"] = c
+
+    # --- ファーストビュー用の1文（効きの大きい2区分まで）---
+    if diff == 0:
+        out["headline"] = (f"前回{out['from_label']}予測から月末着地見込みは"
+                           "変わっていません。")
+    else:
+        h = (f"前回{out['from_label']}予測から{yen_sman(diff)}"
+             + ("下方修正。" if diff < 0 else "上方修正。"))
+        if moved:
+            h += "主な変化は" + "、".join(_seg_txt(x) for x in moved[:2]) + "です。"
+        out["headline"] = h
     out["available"] = True
     return out
 

@@ -2127,17 +2127,18 @@ class TestForecastChange(unittest.TestCase):
         cls.fc = MR.build_forecast_change(cls.s24, cls.s25)
 
     def items(self, fc=None):
-        return {i["key"]: i["yen"] for i in (fc or self.fc)["items"]}
+        """技術ブリッジの項目。経営画面には出さない内部監査用。"""
+        return {i["key"]: i["yen"] for i in (fc or self.fc)["bridge"]["items"]}
 
     # ---- 金額が閉じること ----
-    def test_items_plus_residual_equal_the_diff(self):
-        fc = self.fc
-        self.assertAlmostEqual(sum(i["yen"] for i in fc["items"]) + fc["residual"],
-                               fc["diff"], places=6)
+    def test_bridge_plus_residual_equal_the_diff(self):
+        br = self.fc["bridge"]
+        self.assertAlmostEqual(sum(i["yen"] for i in br["items"]) + br["residual"],
+                               self.fc["diff"], places=6)
 
     def test_residual_is_only_rounding(self):
-        self.assertLess(abs(self.fc["residual"]), 100,
-                        f"残差が大きい: {self.fc['residual']}")
+        self.assertLess(abs(self.fc["bridge"]["residual"]), 100,
+                        f"残差が大きい: {self.fc['bridge']['residual']}")
 
     def test_diff_matches_the_snapshots(self):
         fc = self.fc
@@ -2150,8 +2151,8 @@ class TestForecastChange(unittest.TestCase):
                      (self.s24, self.s25)):
             fc = MR.build_forecast_change(a, b)
             self.assertTrue(fc["available"])
-            self.assertLess(abs(fc["residual"]), 100,
-                            f"{fc['label']} の残差: {fc['residual']}")
+            self.assertLess(abs(fc["bridge"]["residual"]), 100,
+                            f"{fc['label']} の残差: {fc['bridge']['residual']}")
 
     def test_segments_sum_to_the_diff(self):
         seg = sum(s["diff"] for s in self.fc["segments"])
@@ -2180,7 +2181,7 @@ class TestForecastChange(unittest.TestCase):
         self.assertEqual(MR.yen_sman(it["unrecorded"]), "▲19万円")
         self.assertEqual(MR.yen_sman(it["remaining_rate"]), "+9万円")
         self.assertEqual(MR.yen_sman(it["visit_care"]), "±0万円")
-        self.assertEqual(MR.yen_sman(self.fc["residual"]), "±0万円")
+        self.assertEqual(MR.yen_sman(self.fc["bridge"]["residual"]), "±0万円")
 
     def test_august_25_segments(self):
         seg = {s["label"]: s["diff"] for s in self.fc["segments"]}
@@ -2196,19 +2197,37 @@ class TestForecastChange(unittest.TestCase):
 
     def test_days_label_names_the_pool_not_the_day(self):
         """『残り予測から外れた日』ではなく『残り予測対象の減少』と呼ぶ。"""
-        lb = {i["key"]: i["label"] for i in self.fc["items"]}["remaining_days"]
+        lb = {i["key"]: i["label"]
+              for i in self.fc["bridge"]["items"]}["remaining_days"]
         self.assertEqual(lb, "残り予測対象が1日減少")
 
     # ---- 呼び方（原因と言わない）----
     def test_never_called_a_cause(self):
         fc = self.fc
-        text = " ".join([fc["title"], fc["comment"], fc["note"],
-                         fc["short_note"]]
-                        + [i["label"] for i in fc["items"]]
-                        + [i.get("how", "") for i in fc["items"]])
-        self.assertEqual(fc["title"], "予測変更の主な内訳")
-        for bad in ("原因", "主因", "предположение", "せい", "が理由"):
+        text = " ".join([fc["title"], fc["subtitle"], fc["comment"],
+                         fc["headline"], fc["short_note"]]
+                        + [x["label"] for x in fc["segments"]])
+        self.assertEqual(fc["title"], "予測変更の内訳")
+        for bad in ("原因", "主因", "せい", "が理由"):
             self.assertNotIn(bad, text, f"原因として書いている: {bad}")
+
+    def test_bucket_terms_never_reach_the_management_text(self):
+        """バケット移動の語が、経営向けの文言に混ざらないこと。"""
+        fc = self.fc
+        mgmt_text = " ".join([fc["title"], fc["subtitle"], fc["comment"],
+                              fc["headline"], fc["short_note"]]
+                             + [x["label"] for x in fc["segments"]])
+        for bad in ("残り予測対象", "バケット", "経過・売上未反映",
+                    "1日あたり水準", "新たに確定した外来実績"):
+            self.assertNotIn(bad, mgmt_text, bad)
+
+    def test_bridge_declares_it_is_not_a_business_reason(self):
+        br = self.fc["bridge"]
+        self.assertIn("内部監査用", br["title"])
+        self.assertIn("経営上の理由としては読まないでください", br["caution"])
+        self.assertIn("売上の良し悪しを意味しません", br["caution"])
+        days = {i["key"]: i for i in br["items"]}["remaining_days"]
+        self.assertIn("日付が進めば必ず起きる移動", days["how"])
 
     def test_comment_does_not_claim_actuals_missed_the_forecast(self):
         c = self.fc["comment"]
@@ -2216,18 +2235,30 @@ class TestForecastChange(unittest.TestCase):
                     "実績が想定", "主因"):
             self.assertNotIn(bad, c, f"証明できない因果: {bad}")
 
-    def test_comment_matches_the_agreed_shape(self):
+    def test_comment_is_segment_based(self):
+        """経営向けの文は売上区分だけで組み立てる（バケット移動を入れない）。"""
         c = self.fc["comment"]
-        self.assertIn("8/24から8/25にかけて、月末見込みは58万円下がりました。", c)
-        self.assertIn("新たに確定した外来実績が+45万円", c)
-        self.assertIn("残り予測対象の1日減少が▲93万円", c)
-        self.assertIn("経過・売上未反映日の見込み見直しが▲19万円", c)
-        self.assertIn("残り予測の1日あたり水準見直しが+9万円", c)
-        # 助詞が重なっていない
-        self.assertNotIn("が1日減少が", c)
+        self.assertEqual(
+            c, "8/24から8/25にかけて月末着地見込みを58万円下方修正しました。"
+               "内訳は、自費見込み▲37万円、外来保険見込み▲20万円、物販見込み▲1万円です。"
+               "訪問保険と介護の月末見込みは変わっていません。")
+        for bad in ("残り予測対象", "経過・売上未反映", "1日あたり水準", "新たに確定"):
+            self.assertNotIn(bad, c, f"経営向けの文にバケット移動が混ざっている: {bad}")
+
+    def test_headline_for_the_first_view(self):
+        h = self.fc["headline"]
+        self.assertEqual(
+            h, "前回8/24予測から▲58万円下方修正。"
+               "主な変化は自費見込み▲37万円、外来保険見込み▲20万円です。")
+        for bad in ("実績が", "下回ったため", "残り予測対象"):
+            self.assertNotIn(bad, h, bad)
+
+    def test_segments_are_sorted_by_impact(self):
+        d = [abs(x["diff"]) for x in self.fc["segments"]]
+        self.assertEqual(d, sorted(d, reverse=True), self.fc["segments"])
 
     def test_note_says_the_days_are_not_the_same(self):
-        n = self.fc["note"]
+        n = self.fc["bridge"]["note"]
         self.assertIn("必ずしも同じ日ではありません", n)
         self.assertIn("予想対実績", n)
 
@@ -2236,7 +2267,8 @@ class TestForecastChange(unittest.TestCase):
         fc = MR.build_forecast_change(None, self.s25)
         self.assertFalse(fc["available"])
         self.assertEqual(fc["reason"], "no_previous")
-        self.assertEqual(fc["items"], [])
+        self.assertEqual(fc["segments"], [])
+        self.assertEqual(fc["bridge"]["items"], [])
 
     def test_no_snapshot_at_all(self):
         fc = MR.build_forecast_change(None, None)
@@ -2265,7 +2297,7 @@ class TestForecastChange(unittest.TestCase):
         self.assertTrue(fc["available"])
         self.assertAlmostEqual(fc["diff"], 0.0, places=6)
         self.assertEqual(fc["direction"], "横ばい")
-        for i in fc["items"]:
+        for i in fc["bridge"]["items"]:
             self.assertAlmostEqual(i["yen"], 0.0, places=6)
 
     # ---- 予測値そのものに触れていないこと ----
@@ -2287,23 +2319,50 @@ class TestForecastChangeInApp(unittest.TestCase):
         with io.open(p, encoding="utf-8") as fh:
             return fh.read()
 
+    def _fc_body(self):
+        src = self._src()
+        return src[src.index("def _render_forecast_change(fc, month, snaps, i):"):
+                   src.index("def _render_forecast_change_history(")]
+
     def test_block_is_rendered_under_the_chart(self):
         src = self._src()
-        self.assertIn("def _render_forecast_change(month, snap):", src)
-        self.assertIn("_render_forecast_change(month, snap)", src)
+        self.assertIn("def _render_forecast_change(fc, month, snaps, i):", src)
+        self.assertIn("_render_forecast_change(_fc, month, _fc_snaps, _fc_i)", src)
         # グラフ（凡例）の直後に呼ばれていること
         self.assertLess(src.index("mfc-clegend"),
-                        src.index("    _render_forecast_change(month, snap)"))
+                        src.index("    _render_forecast_change(_fc, month,"))
 
     def test_history_is_in_an_expander(self):
         src = self._src()
         self.assertIn("過去の予測変更を見る", src)
         self.assertIn("def _render_forecast_change_history(", src)
 
+    def test_bridge_is_in_its_own_expander(self):
+        """バケット移動は内部監査用の折りたたみへ隔離する。"""
+        src = self._src()
+        self.assertIn("def _render_forecast_change_bridge(fc):", src)
+        # 常時表示の本体からはバケットの語が消えていること
+        body = self._fc_body()
+        for bad in ("残り予測対象", "経過・売上未反映", "1日あたり水準",
+                    "新たに確定した外来実績", "説明できない残差"):
+            self.assertNotIn(bad, body, f"常時表示にバケット移動が残っている: {bad}")
+
+    def test_main_view_is_segment_based(self):
+        src = self._src()
+        self.assertIn("def _fc_segment_table(fc):", src)
+        self.assertIn('_fc_segment_table(fc)', self._fc_body())
+
+    def test_headline_is_added_to_the_first_view(self):
+        src = self._src()
+        self.assertIn("_fc['headline']", src)
+        # 今日の結論のブロック内で使われていること
+        self.assertLess(src.index("今日の結論と論点") - 2000,
+                        src.index("_fc['headline']"))
+
     def test_app_does_not_recompute_the_breakdown(self):
         """内訳の計算は mgmt_report 側だけ（定義を2か所に置かない）。"""
         src = self._src()
-        s = src.index("def _render_forecast_change(month, snap):")
+        s = src.index("def _render_forecast_change(fc, month, snaps, i):")
         e = src.index("def _render_actions(rep):")
         body = src[s:e]
         for token in ("remaining_forecast_total", "elapsed_unrecorded_total",
@@ -2312,7 +2371,7 @@ class TestForecastChangeInApp(unittest.TestCase):
 
     def test_app_does_not_say_cause(self):
         src = self._src()
-        s = src.index("def _render_forecast_change(month, snap):")
+        s = src.index("def _render_forecast_change(fc, month, snaps, i):")
         e = src.index("def _render_actions(rep):")
         body = src[s:e]
         for bad in ("下方修正の主因", "原因は", "主因"):
