@@ -2100,35 +2100,92 @@ class TestSummaryLead(unittest.TestCase):
 
 
 # ======================================================================
+# 予測変更の内訳
+# ----------------------------------------------------------------------
+# テストは2種類に分ける。混ぜると日次更新のたびにテスト負債になる。
+#
+#   A. ロジック固定テスト（TestForecastChange）
+#        凍結fixtureを入力に、計算・文章・呼び方そのものを固定する。
+#        fixture は「この入力ならこの出力になる」という単体テスト用データで、
+#        本番の最新スナップショットとは無関係。日次更新に合わせて書き換えない。
+#
+#   B. 最新スナップショット整合テスト（TestForecastChangeOnLatestSnapshot）
+#        本番の最新2世代を実装と同じルールで選び、期待値はスナップショットから
+#        独立に計算して突き合わせる。金額・日付を直書きしない。
+#        「▲51万円であること」ではなく「実際の差額を正しく▲◯万円と表示して
+#        いること」を確かめる。
+# ======================================================================
+FC_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "test_fixtures", "forecast_change")
+
+
+def load_fc_fixture(name):
+    """凍結fixture（本番 data/ とは独立。日次更新の影響を受けない）。"""
+    import json
+    with io.open(os.path.join(FC_FIXTURES, name), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def man_candidates(v):
+    """万円へ丸めた候補。ちょうど0.5万のときだけ2つ返す。
+
+    丸め方の流儀（銀行丸め・四捨五入）に依存せず「正しく丸められているか」を
+    見るための、実装とは独立した計算。
+    """
+    import math
+    n = float(v) / 10000.0
+    return sorted({int(math.floor(n + 0.5)), int(math.ceil(n - 0.5))})
+
+
+def yen_man_candidates(v):
+    return [f"{n:,}万円" for n in man_candidates(v)]
+
+
+def yen_sman_candidates(v):
+    out = []
+    for n in man_candidates(v):
+        out.append(f"▲{abs(n):,}万円" if n < 0 else
+                   (f"+{n:,}万円" if n > 0 else "±0万円"))
+    return out
+
+
+def md_label(d):
+    """2026-08-25 → 8/25。実装とは独立に組み立てる。"""
+    return f"{int(str(d)[5:7])}/{int(str(d)[8:10])}"
+
+
+# ======================================================================
 class TestForecastChange(unittest.TestCase):
-    """予測変更の内訳。スナップショット2つの差を金額で割る。
+    """A. ロジック固定テスト（凍結fixture）。
+
+    入力は test_fixtures/forecast_change/ の2世代で固定する。
+    2026-08-24（21,030,192円）→ 2026-08-25 09:11 世代（20,449,283円）という
+    実在した組み合わせをそのまま凍結したもので、「2026-08-25 の現在値」という
+    意味ではない。日次更新で本番の値が動いてもこのテストは動かない。
 
     金額が閉じること（残差が丸め誤差だけ）と、
     「原因」と呼んでいないことを固定する。
     """
 
-    SNAPS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "data", "2026_08", "snapshots")
-
     @classmethod
     def setUpClass(cls):
-        import json
-        if not os.path.isdir(cls.SNAPS):
-            raise unittest.SkipTest("2026_08 のスナップショットが無い")
-
-        def load(d):
-            p = os.path.join(cls.SNAPS, d, "daily_rolling_forecast.json")
-            if not os.path.isfile(p):
-                raise unittest.SkipTest(f"{d} が無い")
-            return json.load(io.open(p, encoding="utf-8"))
-
-        cls.s21, cls.s22 = load("2026_08_21"), load("2026_08_22")
-        cls.s24, cls.s25 = load("2026_08_24"), load("2026_08_25")
-        cls.fc = MR.build_forecast_change(cls.s24, cls.s25)
+        if not os.path.isdir(FC_FIXTURES):
+            raise unittest.SkipTest("test_fixtures/forecast_change が無い")
+        cls.prev = load_fc_fixture("prev_2026_08_24.json")
+        cls.curr = load_fc_fixture("curr_2026_08_25.json")
+        cls.fc = MR.build_forecast_change(cls.prev, cls.curr)
 
     def items(self, fc=None):
         """技術ブリッジの項目。経営画面には出さない内部監査用。"""
         return {i["key"]: i["yen"] for i in (fc or self.fc)["bridge"]["items"]}
+
+    # ---- fixture が意図した組み合わせであること ----
+    def test_fixture_is_the_frozen_pair(self):
+        """fixture を取り違えたまま緑になることを防ぐ。"""
+        self.assertEqual(self.prev["as_of_date"], "2026-08-24")
+        self.assertEqual(self.curr["as_of_date"], "2026-08-25")
+        self.assertEqual(self.prev["current_forecast_total"], 21_030_192)
+        self.assertEqual(self.curr["current_forecast_total"], 20_449_283)
 
     # ---- 金額が閉じること ----
     def test_bridge_plus_residual_equal_the_diff(self):
@@ -2142,24 +2199,16 @@ class TestForecastChange(unittest.TestCase):
 
     def test_diff_matches_the_snapshots(self):
         fc = self.fc
-        self.assertEqual(fc["from_total"], self.s24["current_forecast_total"])
-        self.assertEqual(fc["to_total"], self.s25["current_forecast_total"])
+        self.assertEqual(fc["from_total"], self.prev["current_forecast_total"])
+        self.assertEqual(fc["to_total"], self.curr["current_forecast_total"])
         self.assertAlmostEqual(fc["diff"], -580_909, places=6)
-
-    def test_closes_for_every_recent_transition(self):
-        for a, b in ((self.s21, self.s22), (self.s22, self.s24),
-                     (self.s24, self.s25)):
-            fc = MR.build_forecast_change(a, b)
-            self.assertTrue(fc["available"])
-            self.assertLess(abs(fc["bridge"]["residual"]), 100,
-                            f"{fc['label']} の残差: {fc['bridge']['residual']}")
 
     def test_segments_sum_to_the_diff(self):
         seg = sum(s["diff"] for s in self.fc["segments"])
         self.assertLess(abs(seg - self.fc["diff"]), 100, f"区分別の合計: {seg}")
 
-    # ---- 2026-08-24 → 25 の実数 ----
-    def test_august_25_headline(self):
+    # ---- fixture の実数（凍結入力に対する固定値）----
+    def test_fixture_headline(self):
         fc = self.fc
         self.assertEqual(fc["label"], "8/24 → 8/25")
         self.assertEqual(MR.yen_man(fc["from_total"]), "2,103万円")
@@ -2167,14 +2216,14 @@ class TestForecastChange(unittest.TestCase):
         self.assertEqual(MR.yen_sman(fc["diff"]), "▲58万円")
         self.assertEqual(fc["direction"], "下方修正")
 
-    def test_august_25_items(self):
+    def test_fixture_items(self):
         it = self.items()
         want = {"new_confirmed": 45.3, "remaining_days": -92.8,
                 "unrecorded": -19.1, "remaining_rate": 8.5, "visit_care": 0.0}
         for k, v in want.items():
             self.assertAlmostEqual(it[k] / 10000, v, delta=0.05, msg=k)
 
-    def test_august_25_items_rounded_for_display(self):
+    def test_fixture_items_rounded_for_display(self):
         it = self.items()
         self.assertEqual(MR.yen_sman(it["new_confirmed"]), "+45万円")
         self.assertEqual(MR.yen_sman(it["remaining_days"]), "▲93万円")
@@ -2183,7 +2232,7 @@ class TestForecastChange(unittest.TestCase):
         self.assertEqual(MR.yen_sman(it["visit_care"]), "±0万円")
         self.assertEqual(MR.yen_sman(self.fc["bridge"]["residual"]), "±0万円")
 
-    def test_august_25_segments(self):
+    def test_fixture_segments(self):
         seg = {s["label"]: s["diff"] for s in self.fc["segments"]}
         for lb, v in (("外来保険", -20.1), ("自費", -36.9), ("物販", -1.1),
                       ("訪問保険", 0.0), ("介護", 0.0)):
@@ -2192,7 +2241,7 @@ class TestForecastChange(unittest.TestCase):
     def test_visit_and_care_month_end_forecast_did_not_move(self):
         """訪問保険・介護は確定へ振り替わっただけで月末見込みは動いていない。"""
         for k in ("visit_insurance_forecast", "care_forecast"):
-            self.assertEqual(self.s24[k], self.s25[k], k)
+            self.assertEqual(self.prev[k], self.curr[k], k)
         self.assertAlmostEqual(self.items()["visit_care"], 0.0, places=6)
 
     def test_days_label_names_the_pool_not_the_day(self):
@@ -2262,9 +2311,16 @@ class TestForecastChange(unittest.TestCase):
         self.assertIn("必ずしも同じ日ではありません", n)
         self.assertIn("予想対実績", n)
 
+    def test_daily_and_month_end_are_not_treated_as_the_same_thing(self):
+        """日次の予想対実績と、月末見込みの変更額を同一視しない。"""
+        n = self.fc["bridge"]["note"]
+        self.assertIn("特定日の『予想対実績』を示すものではありません", n)
+        self.assertNotIn("予想対実績", self.fc["comment"])
+        self.assertNotIn("予想対実績", self.fc["headline"])
+
     # ---- 足りないときは出さない ----
     def test_no_previous_snapshot(self):
-        fc = MR.build_forecast_change(None, self.s25)
+        fc = MR.build_forecast_change(None, self.curr)
         self.assertFalse(fc["available"])
         self.assertEqual(fc["reason"], "no_previous")
         self.assertEqual(fc["segments"], [])
@@ -2278,22 +2334,22 @@ class TestForecastChange(unittest.TestCase):
     def test_old_snapshot_without_confirmed_detail(self):
         """confirmed_actual_detail を持たない世代では作らない（推定しない）。"""
         import copy
-        old = copy.deepcopy(self.s24)
+        old = copy.deepcopy(self.prev)
         old["forecast_composition"].pop("confirmed_actual_detail", None)
-        fc = MR.build_forecast_change(old, self.s25)
+        fc = MR.build_forecast_change(old, self.curr)
         self.assertFalse(fc["available"])
         self.assertEqual(fc["reason"], "no_confirmed_detail")
 
     def test_missing_keys_are_not_guessed(self):
         import copy
-        old = copy.deepcopy(self.s24)
+        old = copy.deepcopy(self.prev)
         old.pop("remaining_forecast_total", None)
-        fc = MR.build_forecast_change(old, self.s25)
+        fc = MR.build_forecast_change(old, self.curr)
         self.assertFalse(fc["available"])
         self.assertEqual(fc["reason"], "missing_keys")
 
     def test_identical_snapshots_show_no_change(self):
-        fc = MR.build_forecast_change(self.s25, self.s25)
+        fc = MR.build_forecast_change(self.curr, self.curr)
         self.assertTrue(fc["available"])
         self.assertAlmostEqual(fc["diff"], 0.0, places=6)
         self.assertEqual(fc["direction"], "横ばい")
@@ -2303,10 +2359,186 @@ class TestForecastChange(unittest.TestCase):
     # ---- 予測値そのものに触れていないこと ----
     def test_does_not_touch_forecast_values(self):
         import copy
-        a, b = copy.deepcopy(self.s24), copy.deepcopy(self.s25)
+        a, b = copy.deepcopy(self.prev), copy.deepcopy(self.curr)
         MR.build_forecast_change(a, b)
-        self.assertEqual(a, self.s24)
-        self.assertEqual(b, self.s25)
+        self.assertEqual(a, self.prev)
+        self.assertEqual(b, self.curr)
+
+
+# ======================================================================
+class TestForecastChangeOnLatestSnapshot(unittest.TestCase):
+    """B. 最新スナップショット整合テスト。
+
+    金額・日付は直書きしない。最新2世代のスナップショットから期待値を
+    独立に計算し、実装の出力がそれと一致するかだけを見る。
+    日次更新で値が変わってもテストは追随する。
+    """
+
+    DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        import re as _re
+        if not os.path.isdir(cls.DATA):
+            raise unittest.SkipTest("data/ が無い")
+        months = sorted(d for d in os.listdir(cls.DATA)
+                        if _re.fullmatch(r"\d{4}_\d{2}", d))
+        rolls = []
+        for m in reversed(months):                 # 新しい月から探す
+            sd = os.path.join(cls.DATA, m, "snapshots")
+            if not os.path.isdir(sd):
+                continue
+            got = []
+            for n in sorted(os.listdir(sd)):       # 実装と同じ「名前順＝日付順」
+                p = os.path.join(sd, n, "daily_rolling_forecast.json")
+                if os.path.isfile(p):
+                    with io.open(p, encoding="utf-8") as fh:
+                        got.append(json.load(fh))
+            if len(got) >= 2:
+                rolls = got
+                break
+        if len(rolls) < 2:
+            raise unittest.SkipTest("比較できるスナップショットが2世代そろっていない")
+        cls.rolls = rolls
+        cls.prev, cls.curr = rolls[-2], rolls[-1]
+        cls.fc = MR.build_forecast_change(cls.prev, cls.curr)
+        if not cls.fc.get("available"):
+            raise unittest.SkipTest(f"内訳を作れない世代: {cls.fc.get('reason')}")
+
+    # ---- どの2世代を見ているか ----
+    def test_uses_the_latest_two_snapshots(self):
+        self.assertEqual(self.fc["from_as_of"], self.prev["as_of_date"])
+        self.assertEqual(self.fc["to_as_of"], self.curr["as_of_date"])
+        self.assertLess(self.fc["from_as_of"], self.fc["to_as_of"])
+
+    def test_label_is_built_from_the_snapshot_dates(self):
+        """『8/24 → 8/25』を直書きせず、スナップショットの日付から組み立てる。"""
+        want = (md_label(self.prev["as_of_date"]) + " → "
+                + md_label(self.curr["as_of_date"]))
+        self.assertEqual(self.fc["label"], want)
+
+    # ---- 金額はスナップショットから独立計算 ----
+    def test_totals_come_from_the_snapshots(self):
+        self.assertEqual(self.fc["from_total"], self.prev["current_forecast_total"])
+        self.assertEqual(self.fc["to_total"], self.curr["current_forecast_total"])
+
+    def test_diff_is_the_difference_of_the_two_totals(self):
+        want = (self.curr["current_forecast_total"]
+                - self.prev["current_forecast_total"])
+        self.assertAlmostEqual(self.fc["diff"], want, places=6)
+
+    def test_direction_follows_the_sign_of_the_diff(self):
+        d = self.fc["diff"]
+        want = "下方修正" if d < 0 else ("上方修正" if d > 0 else "横ばい")
+        self.assertEqual(self.fc["direction"], want)
+
+    def test_each_segment_is_the_component_difference(self):
+        got = {s["key"]: s for s in self.fc["segments"]}
+        for key, label in MR.FC_SEGMENTS:
+            want = self.curr[key] - self.prev[key]
+            self.assertIn(key, got, key)
+            self.assertEqual(got[key]["label"], label, key)
+            self.assertAlmostEqual(got[key]["diff"], want, places=6, msg=key)
+            self.assertAlmostEqual(got[key]["from"], self.prev[key], places=6)
+            self.assertAlmostEqual(got[key]["to"], self.curr[key], places=6)
+
+    def test_segments_sum_to_the_diff(self):
+        seg = sum(s["diff"] for s in self.fc["segments"])
+        self.assertLess(abs(seg - self.fc["diff"]), 100, f"区分別の合計: {seg}")
+
+    def test_segments_are_sorted_by_impact(self):
+        d = [abs(x["diff"]) for x in self.fc["segments"]]
+        self.assertEqual(d, sorted(d, reverse=True))
+
+    def test_new_confirmed_is_the_confirmed_detail_difference(self):
+        """新たに確定した外来実績＝確定内訳（外来保険・自費・物販）の増分。"""
+        want = sum(self.curr["forecast_composition"]["confirmed_actual_detail"][k]
+                   - self.prev["forecast_composition"]["confirmed_actual_detail"][k]
+                   for k in MR.FC_OP_KEYS)
+        it = {i["key"]: i["yen"] for i in self.fc["bridge"]["items"]}
+        self.assertAlmostEqual(it["new_confirmed"], want, places=6)
+
+    def test_days_and_rate_split_reproduces_the_remaining_change(self):
+        """日数の項＋水準の項＝残り予測の変化。実装とは別に組み直して確かめる。"""
+        n0 = self.prev["remaining_days_count"]
+        n1 = self.curr["remaining_days_count"]
+        v0 = float(self.prev["remaining_forecast_total"])
+        v1 = float(self.curr["remaining_forecast_total"])
+        days_want = (v0 / n0 if n0 else 0.0) * (n1 - n0)
+        it = {i["key"]: i["yen"] for i in self.fc["bridge"]["items"]}
+        self.assertAlmostEqual(it["remaining_days"], days_want, places=6)
+        self.assertAlmostEqual(it["remaining_days"] + it["remaining_rate"],
+                               v1 - v0, places=6)
+
+    def test_bridge_plus_residual_equal_the_diff(self):
+        br = self.fc["bridge"]
+        self.assertAlmostEqual(sum(i["yen"] for i in br["items"]) + br["residual"],
+                               self.fc["diff"], places=6)
+
+    def test_residual_is_only_rounding(self):
+        self.assertLess(abs(self.fc["bridge"]["residual"]), 100,
+                        f"残差が大きい: {self.fc['bridge']['residual']}")
+
+    def test_closes_for_every_consecutive_transition(self):
+        """最新2世代だけでなく、その月の全ての連続する2世代で閉じること。"""
+        checked = 0
+        for a, b in zip(self.rolls, self.rolls[1:]):
+            fc = MR.build_forecast_change(a, b)
+            if not fc["available"]:
+                continue                      # 導入前の世代は対象外（推定しない）
+            checked += 1
+            self.assertAlmostEqual(
+                fc["diff"], b["current_forecast_total"] - a["current_forecast_total"],
+                places=6, msg=fc["label"])
+            self.assertLess(abs(fc["bridge"]["residual"]), 100,
+                            f"{fc['label']} の残差: {fc['bridge']['residual']}")
+        self.assertGreaterEqual(checked, 1, "検査できた遷移が無い")
+
+    # ---- 表示の丸め ----
+    def test_displayed_amounts_are_correctly_rounded(self):
+        """実装の丸め関数ではなく、元データから独立に丸めた候補と突き合わせる。"""
+        self.assertIn(MR.yen_man(self.fc["from_total"]),
+                      yen_man_candidates(self.prev["current_forecast_total"]))
+        self.assertIn(MR.yen_man(self.fc["to_total"]),
+                      yen_man_candidates(self.curr["current_forecast_total"]))
+        self.assertIn(MR.yen_sman(self.fc["diff"]),
+                      yen_sman_candidates(self.curr["current_forecast_total"]
+                                          - self.prev["current_forecast_total"]))
+
+    def test_headline_shows_the_rounded_diff_of_the_snapshots(self):
+        """『▲◯万円』の◯が、実際のスナップショット間の差から来ていること。"""
+        h = self.fc["headline"]
+        d = self.curr["current_forecast_total"] - self.prev["current_forecast_total"]
+        self.assertTrue(any(s.lstrip("+") in h for s in yen_sman_candidates(d)),
+                        f"差額が見出しに出ていない: {h}")
+        self.assertIn(md_label(self.prev["as_of_date"]), h)
+        self.assertIn(self.fc["direction"], h)
+
+    def test_comment_shows_the_rounded_diff_and_the_moving_segments(self):
+        c = self.fc["comment"]
+        d = self.curr["current_forecast_total"] - self.prev["current_forecast_total"]
+        self.assertTrue(any(str(abs(n)) in c for n in man_candidates(d)),
+                        f"差額がコメントに出ていない: {c}")
+        for s in self.fc["segments"]:
+            if round(abs(s["diff"]) / 10000) == 0:
+                continue                       # 万円未満は文に出さない
+            self.assertIn(MR.FC_SEG_IN_TEXT[s["label"]], c, s["label"])
+
+    # ---- 呼び方は最新データでも変わらない ----
+    def test_never_called_a_cause_on_the_latest_data(self):
+        fc = self.fc
+        text = " ".join([fc["title"], fc["subtitle"], fc["comment"],
+                         fc["headline"], fc["short_note"]])
+        for bad in ("原因", "主因", "せい", "が理由"):
+            self.assertNotIn(bad, text, bad)
+
+    def test_does_not_touch_forecast_values(self):
+        import copy
+        a, b = copy.deepcopy(self.prev), copy.deepcopy(self.curr)
+        MR.build_forecast_change(a, b)
+        self.assertEqual(a, self.prev)
+        self.assertEqual(b, self.curr)
 
 
 # ======================================================================
