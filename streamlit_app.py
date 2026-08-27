@@ -837,6 +837,36 @@ def _dve_table(day):
             + "".join(tr) + "</table>")
 
 
+def _load_data_completeness(roll):
+    """売上がまだ反映されていない診療日。旧世代のスナップショットでは None。"""
+    if MR is None:
+        return None
+    dq = MR.build_data_completeness(roll)
+    return dq if dq.get("available") else None
+
+
+def _render_data_completeness(dq):
+    """休診日・未来日は対象外。未反映の診療日があるときだけ出す。"""
+    if not dq:
+        return
+    rows = []
+    for x in dq["days"]:
+        est = man(x["estimate"]) if x["estimate"] is not None else "—"
+        rows.append(f"<tr><td>{_html.escape(str(x['label']))}</td>"
+                    f"<td class='n'>{est}</td></tr>")
+    st.markdown('<div class="mfc-sec">売上がまだ反映されていない診療日</div>',
+                unsafe_allow_html=True)
+    st.markdown(
+        "<div class='mfc-fc'>"
+        f"<div class='hd'>{_html.escape(str(dq['headline']))}</div>"
+        "<table class='mfc-t'><thead><tr><th>診療日</th>"
+        "<th class='n'>保持している見込み</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+        "</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='mfc-note'>{_html.escape(str(dq['note']))}</div>",
+                unsafe_allow_html=True)
+
+
 def _render_daily_vs_expected(dve):
     if not dve:
         return
@@ -1778,6 +1808,7 @@ def render(month, snap, nav=None):
     # 前回スナップショットとの差。結論の1行とグラフ直下の両方で使うので先に作る。
     _fc, _fc_snaps, _fc_i = _load_forecast_change(month, snap)
     _dve = _load_daily_vs_expected(month)
+    _dq = _load_data_completeness(roll)      # 売上未反映の診療日（旧世代では None）
 
     st.markdown('<div class="mfc-tier"><span class="n">SUMMARY</span>今日の結論'
                 '<span class="ln"></span></div>', unsafe_allow_html=True)
@@ -2048,6 +2079,8 @@ def render(month, snap, nav=None):
             "<span class='l3'>80%予測レンジ</span>"
             f"<span class='l2'>前年同月 {man(py)}</span>"
             "</div>", unsafe_allow_html=True)
+    # 数字の読み方が変わるので、データの欠けは予測変更より先に知らせる。
+    _render_data_completeness(_dq)
     # グラフは上下しか分からないので、どの区分が動いてそうなったかを直下に添える。
     _render_forecast_change(_fc, month, _fc_snaps, _fc_i)
     # 別ブロック。月末見込みの変化（上）と、1日の予想対実績（下）は違うもの。
@@ -2378,7 +2411,10 @@ def render(month, snap, nav=None):
         st.json({k: meta.get(k) for k in [
             "target_month", "as_of_date", "generated_at", "forecast_mode",
             "resec_data_status", "apotool_data_status", "actual_data_through",
+            "data_cutoff_date", "actual_data_complete_through", "unrecorded_days_count",
             "reservation_data_through", "model_version", "pipeline_exit_code"]} or meta)
+        st.caption("actual_data_through は data cutoff（基準日の前日）です。"
+                   "実績が完全に揃った最終日は actual_data_complete_through を見てください。")
         leak = roll.get("leak_checks") or {}
         if leak:
             st.caption("未来実績リーク防止チェック（ローカル運用版で検証済み）")

@@ -2698,8 +2698,14 @@ class TestDailyBreakdownInSnapshot(unittest.TestCase):
             self.assertLessEqual(r["date"], self.roll["as_of_date"], r["date"])
 
     def test_only_two_statuses(self):
-        self.assertEqual({r["status"] for r in self.roll["daily_expected"]},
-                         {"remaining", "elapsed_unrecorded"})
+        """status はこの2つ以外を作らない。
+
+        休診日が正しく除外された月は elapsed_unrecorded が0件になる（それが正常）。
+        両方そろっていることを要求すると、データが健全な月ほど落ちる。
+        """
+        got = {r["status"] for r in self.roll["daily_expected"]}
+        self.assertTrue(got <= {"remaining", "elapsed_unrecorded"}, got)
+        self.assertTrue(got, "daily_expected が空")
 
     # ---- 9. 公開範囲 ----
     def test_rows_carry_no_patient_information(self):

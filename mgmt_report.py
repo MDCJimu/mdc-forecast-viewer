@@ -2303,6 +2303,53 @@ def build_daily_vs_expected(rolls, limit=8):
 
 
 # ======================================================================
+# 4.8 日単位のデータ完全性（売上がまだ反映されていない診療日）
+# ----------------------------------------------------------------------
+# 「レセコンに記録行が無い」は 0円実績ではない。診療予定日なのに記録行が無い日は
+# unrecorded として扱い、その日の見込み金額を保持したまま画面へ出す。
+# 休診日（closed）と未来日（future）は対象外なので、ここには出てこない。
+#
+# 旧世代のスナップショットは data_completeness を持たない。その場合はブロックを
+# 出さないだけで、後付けで状態を作り直すことはしない。
+DQ_TITLE = "売上がまだ反映されていない診療日"
+DQ_NOTE = ("レセコンにその日の記録行が無い診療予定日です。0円が確定したのではなく、"
+           "まだ取得できていない状態として扱っています。見込み金額は月末着地見込みに"
+           "含まれたままです。休診日だった場合は診療日の例外設定へ登録すると、"
+           "次回の更新から診療日として数えなくなります。")
+
+
+def build_data_completeness(roll):
+    """未反映の診療日を、保存済みの状態からそのまま組み立てる。"""
+    out = {"available": False, "reason": "", "title": DQ_TITLE, "note": DQ_NOTE,
+           "days": [], "headline": "", "complete_through": None,
+           "cutoff": None, "total_estimate": None, "counts": {}}
+    dc = (roll or {}).get("data_completeness")
+    if not isinstance(dc, dict):
+        out["reason"] = "no_data_completeness"      # 導入前の世代
+        return out
+    out["complete_through"] = dc.get("actual_data_complete_through")
+    out["cutoff"] = dc.get("data_cutoff_date")
+    out["counts"] = dc.get("state_counts") or {}
+    out["total_estimate"] = f_(dc.get("unrecorded_estimated_amount"))
+    dates = list(dc.get("unrecorded_dates") or [])
+    if not dates:
+        out["reason"] = "no_unrecorded"
+        return out
+    # 日別の見込み金額は保存済みの日別内訳から引く（後付けで計算しない）
+    est = {r.get("date"): f_(r.get("total"))
+           for r in (roll.get("daily_expected") or [])
+           if r.get("status") == "elapsed_unrecorded"}
+    for d in sorted(dates):
+        out["days"].append({"date": d, "label": _md(d), "estimate": est.get(d)})
+    parts = [(f"{x['label']}　見込み{yen_man(x['estimate'])}" if x["estimate"] is not None
+              else x["label"]) for x in out["days"]]
+    out["headline"] = (f"売上がまだ反映されていない診療日が{cnt(len(dates), '日')}あります："
+                       + "／".join(parts) + "。0円ではなく未取得として扱っています。")
+    out["available"] = True
+    return out
+
+
+# ======================================================================
 # 5. 構造変化（診療日数の変化・通常営業ベースとの差）
 # ======================================================================
 def _structure(f, cap):
