@@ -1,0 +1,48 @@
+{
+  "model_name": "MDC Forecast Engine",
+  "model_version": "v3 candidate",
+  "model_status": "shadow",
+  "as_of_date": "2026-08-27",
+  "generated_at": "2026-08-27 20:21:43",
+  "forecast_total": 15481788,
+  "v21_forecast_total": 15481788,
+  "v20_forecast_total": 20330711,
+  "difference_vs_v21": 0,
+  "progress": 0.7826,
+  "elapsed_clinic_days": 18,
+  "total_clinic_days": 23,
+  "remaining_clinic_days": 5,
+  "ensemble_forecast": 15481788,
+  "ensemble_weight": 0.0,
+  "v21_weight": 1.0,
+  "blend_window_low": 0.2,
+  "blend_window_high": 0.4,
+  "interval_80_low": 17509826,
+  "interval_80_high": 57038357,
+  "interval_90_low": 16949590,
+  "interval_90_high": 76129016,
+  "interval_status": "provisional_calibration",
+  "forecast_components": {
+    "区分": "外来(保険+自費+物販) landing + 訪問介護(別建て)",
+    "外来_landing": 13430160,
+    "訪問介護": 2051628
+  },
+  "explanation": {
+    "text": "v3は進捗率で構成を切り替えるChallengerシャドー。progress<=0.20はEnsemble100%、0.20-0.40で線形ブレンド、0.40以降はChampion v2.1に一致。本予測時点の進捗78%のためv2.1重み100%。区間は縮約方式Eの暫定較正で、正式保証値ではない。",
+    "ensemble_weights": {},
+    "note": "Champion=v2.1を主表示・正式点予測として維持。v3は検証中。"
+  },
+  "data_cutoff": "2026-08-26",
+  "future_leak_check": {
+    "reservations_created_after_as_of_excluded": true,
+    "visit_or_cancel_outcome_used_as_feature": false,
+    "as_of": "2026-08-27"
+  },
+  "config_version": "v3-2026-07-25",
+  "recompute_check": {
+    "recomputed_v21_total_calendar_basis": 15481788,
+    "authoritative_v21_total": 15481788,
+    "note": "当月は本番の日数会計(worked木曜等)を権威採用。calendar基準の再計算値は参考。progress>=0.40ではv3=v2.1。",
+    "v3_equals_v21_when_prog_ge_040": true
+  }
+}
