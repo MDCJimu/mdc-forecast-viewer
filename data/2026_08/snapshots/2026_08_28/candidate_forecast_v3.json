@@ -3,9 +3,9 @@
   "model_version": "v3 candidate",
   "model_status": "shadow",
   "as_of_date": "2026-08-28",
-  "generated_at": "2026-08-28 20:40:02",
-  "forecast_total": 15481788,
-  "v21_forecast_total": 15481788,
+  "generated_at": "2026-08-28 22:00:32",
+  "forecast_total": 18263434,
+  "v21_forecast_total": 18263434,
   "v20_forecast_total": 18449691,
   "difference_vs_v21": 0,
   "progress": 0.8636,
@@ -17,14 +17,14 @@
   "v21_weight": 1.0,
   "blend_window_low": 0.2,
   "blend_window_high": 0.4,
-  "interval_80_low": 16847907,
-  "interval_80_high": 55805286,
-  "interval_90_low": 16037976,
-  "interval_90_high": 73205957,
+  "interval_80_low": 19912503,
+  "interval_80_high": 66938709,
+  "interval_90_low": 18934820,
+  "interval_90_high": 87943395,
   "interval_status": "provisional_calibration",
   "forecast_components": {
     "区分": "外来(保険+自費+物販) landing + 訪問介護(別建て)",
-    "外来_landing": 13430160,
+    "外来_landing": 16211806,
     "訪問介護": 2051628
   },
   "explanation": {
@@ -40,8 +40,8 @@
   },
   "config_version": "v3-2026-07-25",
   "recompute_check": {
-    "recomputed_v21_total_calendar_basis": 15481788,
-    "authoritative_v21_total": 15481788,
+    "recomputed_v21_total_calendar_basis": 18263434,
+    "authoritative_v21_total": 18263434,
     "note": "当月は本番の日数会計(worked木曜等)を権威採用。calendar基準の再計算値は参考。progress>=0.40ではv3=v2.1。",
     "v3_equals_v21_when_prog_ge_040": true
   }
