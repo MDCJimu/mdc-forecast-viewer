@@ -1,0 +1,805 @@
+{
+  "target_month": "2026-08",
+  "as_of_date": "2026-08-29",
+  "generated_at": "2026-08-29 11:42:16",
+  "forecast_mode": "日次ローリング予測",
+  "model_version": "MDC Forecast Model v2.0",
+  "model_roles": {
+    "forecast_display_model": "MDC Forecast Model v2.0",
+    "evaluation_champion_model": "MDC Forecast Model v2.1",
+    "evaluation_champion_status": "approved_evaluation_champion_not_deployed",
+    "challenger_model": "MDC Forecast Engine v3",
+    "challenger_status": "shadow",
+    "care_component_version": "care-v2.0-post_revision_202606",
+    "production_code_hash": "2e0eb442b6b50c2aee868f75a90ce9e59b35d7ea2a08627627d4041e24dbd970",
+    "note": "forecast_display_model がこの画面の基準予測。evaluation_champion_model は評価上の Champion として承認済みだが本番未採用で、シャドーではない。シャドー運用は challenger_model のみ"
+  },
+  "code_release_status": "approved",
+  "production_code_hash": "2e0eb442b6b50c2aee868f75a90ce9e59b35d7ea2a08627627d4041e24dbd970",
+  "monthly_lifecycle": {
+    "as_of_date": "2026-08-29",
+    "active_forecast_month": "2026-08",
+    "active_forecast_status": "forecasting",
+    "active_forecast_label": "2026年8月 今月の予測",
+    "previous_month": "2026-07",
+    "previous_month_close_status": "finalized",
+    "previous_month_close_label": "実績確定",
+    "previous_month_pending_reasons": [],
+    "previous_month_pending_labels": [],
+    "months": {
+      "2026-08": {
+        "state": "forecasting",
+        "state_label": "今月の予測",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-07": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-06": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-05": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-04": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      },
+      "2026-03": {
+        "state": "finalized",
+        "state_label": "実績確定",
+        "pending_reasons": [],
+        "pending_labels": []
+      }
+    },
+    "note": "active_forecast_month は as_of_date が属する年月で決まる。前月が未確定でも当月予測は止めず、前月が後から確定してもactive_forecast_month は変わらない。",
+    "is_active_forecast_month": true,
+    "this_file_target_month": "2026-08"
+  },
+  "reservation_data_status": "fresh",
+  "reservation_source": {
+    "file": "reservation_20260829114132379580.csv",
+    "input_date": "2026-08-29",
+    "created_max": "2026-08-29",
+    "months_in_file": {
+      "2026-08": 1649
+    },
+    "adopted_month": "2026-08",
+    "note": "current フォルダの最新CSVから対象月のみ抽出。前月CSVは流用しない"
+  },
+  "care_component": {
+    "care_component_version": "care-v2.0-post_revision_202606",
+    "care_regime": "post_revision_202606",
+    "care_baseline_source": "latest_confirmed_post_revision_month_per_visit_day",
+    "care_baseline_months": [
+      "2026-06"
+    ],
+    "care_fallback_reason": "post_revision の確定月が 1か月しかなく（比較に必要なのは 3か月）、平均・中央値・直近月・訪問日数補正・回帰の自動比較ができない。直近の確定 post_revision 月 2026-06 の訪問日単価で暫定計上する。改定前（2026-06 より前）の金額水準は使用しない",
+    "care_revision_month": "2026-06",
+    "care_visit_service_days_used": 12,
+    "care_visit_days_kind": "estimated",
+    "care_visit_days_source": "historical_12m_median",
+    "care_scheduled_visit_service_days": null,
+    "care_estimated_visit_service_days": 12,
+    "care_visit_days_note": "推定訪問日数（過去12か月の visit_service_days 中央値・12か月）。訪問予約データが無いため予定表ではない",
+    "care_legacy_prior12_mean": 899072,
+    "care_per_visit_day": 48733,
+    "care_base_month_kaigo": 584800,
+    "care_base_month_visit_days": 12,
+    "care_post_months_available": [
+      "2026-06"
+    ],
+    "care_post_months_used": 1,
+    "care_missing_months": [],
+    "care_missing_months_note": null,
+    "care_data_insufficient": true,
+    "care_interval_widen_factor": 1.6,
+    "care_diff_vs_legacy": -314272,
+    "care_interval_note": "未計上の介護 342,020円 に相対バンドの 1.6 倍を適用して80%レンジを広げた（改定後データ不足の表現）"
+  },
+  "resec_data_status": "反映済み",
+  "apotool_data_status": "反映済み",
+  "actual_data_through": "2026-08-28",
+  "reservation_data_through": "2026-08-31",
+  "last_actual_sales_date": "2026-08-28",
+  "apotool_source": {
+    "fixed_master_max_date": "2026-06-30",
+    "fragment_range": [
+      "2026-08-01",
+      "2026-08-31"
+    ],
+    "dedup_dropped": 0
+  },
+  "resec_source": {
+    "fixed_master_max_date": "2026-06-30",
+    "fragment_range": [
+      "2026-08-01",
+      "2026-08-28"
+    ],
+    "data_cutoff": "2026-08-28"
+  },
+  "supplementary": {
+    "visit": {
+      "available": true,
+      "label": "見込",
+      "forecast": 1414,
+      "actual_to_date": 1273,
+      "prevyear": 1439.0
+    },
+    "shoshin": {
+      "available": true,
+      "label": "見込",
+      "forecast": 43,
+      "actual_to_date": 40,
+      "prevyear": 37.0
+    },
+    "patient_total": {
+      "available": true,
+      "label": "見込",
+      "forecast": 876,
+      "actual_to_date": 836,
+      "prevyear": 891.0,
+      "note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.619)。前年同月は monthly_feature_table の確定値。"
+    },
+    "cancel": {
+      "available": true,
+      "label": "登録済み予約(as_of時点)",
+      "current_rate": 16.5,
+      "current_reservations": 1649,
+      "current_cancels": 272,
+      "prevyear_rate": 15.7
+    },
+    "reservation_composition": {
+      "available": true,
+      "label": "登録済み予約(当月・as_of時点)",
+      "current_total": 1649,
+      "types": {
+        "継続管理型": {
+          "current": 740,
+          "prevyear": 806.0
+        },
+        "都度治療型": {
+          "current": 551,
+          "prevyear": 441.0
+        },
+        "高単価型": {
+          "current": 291,
+          "prevyear": 299.0
+        },
+        "混合・判定保留": {
+          "current": 67,
+          "prevyear": 98.0
+        }
+      }
+    }
+  },
+  "thursday_closed_target": true,
+  "current_forecast_total": 18550889,
+  "conservative_forecast": 18550889,
+  "v2_month_start_forecast": 19759545,
+  "actual_to_date_total": 14543790,
+  "elapsed_unrecorded_total": 988945,
+  "remaining_forecast_total": 966527,
+  "daily_expected": [
+    {
+      "date": "2026-08-29",
+      "status": "elapsed_unrecorded",
+      "outpatient_insurance": 688912.5294117647,
+      "selfpay": 282582.45098039217,
+      "product": 17450.09803921569,
+      "total": 988945.0784313725
+    },
+    {
+      "date": "2026-08-31",
+      "status": "remaining",
+      "outpatient_insurance": 589407.2380952381,
+      "selfpay": 366177.69047619053,
+      "product": 10941.595238095239,
+      "total": 966526.5238095239
+    }
+  ],
+  "daily_actual": [
+    {
+      "date": "2026-08-01",
+      "outpatient_insurance": 718040.0,
+      "selfpay": 759000.0,
+      "product": 15510.0,
+      "total": 1492550.0
+    },
+    {
+      "date": "2026-08-03",
+      "outpatient_insurance": 645470.0,
+      "selfpay": 748000.0,
+      "product": 5200.0,
+      "total": 1398670.0
+    },
+    {
+      "date": "2026-08-04",
+      "outpatient_insurance": 599230.0,
+      "selfpay": 33000.0,
+      "product": 80010.0,
+      "total": 712240.0
+    },
+    {
+      "date": "2026-08-05",
+      "outpatient_insurance": 679660.0,
+      "selfpay": 60500.0,
+      "product": 7700.0,
+      "total": 747860.0
+    },
+    {
+      "date": "2026-08-06",
+      "outpatient_insurance": 0.0,
+      "selfpay": 0.0,
+      "product": 0.0,
+      "total": 0.0
+    },
+    {
+      "date": "2026-08-07",
+      "outpatient_insurance": 511270.0,
+      "selfpay": 577500.0,
+      "product": 17470.0,
+      "total": 1106240.0
+    },
+    {
+      "date": "2026-08-08",
+      "outpatient_insurance": 692780.0,
+      "selfpay": 621500.0,
+      "product": 16320.0,
+      "total": 1330600.0
+    },
+    {
+      "date": "2026-08-10",
+      "outpatient_insurance": 673530.0,
+      "selfpay": 121000.0,
+      "product": 16750.0,
+      "total": 811280.0
+    },
+    {
+      "date": "2026-08-15",
+      "outpatient_insurance": 601550.0,
+      "selfpay": 0.0,
+      "product": 9580.0,
+      "total": 611130.0
+    },
+    {
+      "date": "2026-08-17",
+      "outpatient_insurance": 702200.0,
+      "selfpay": 0.0,
+      "product": 8570.0,
+      "total": 710770.0
+    },
+    {
+      "date": "2026-08-18",
+      "outpatient_insurance": 769690.0,
+      "selfpay": 60500.0,
+      "product": 6120.0,
+      "total": 836310.0
+    },
+    {
+      "date": "2026-08-19",
+      "outpatient_insurance": 631650.0,
+      "selfpay": 0.0,
+      "product": 11700.0,
+      "total": 643350.0
+    },
+    {
+      "date": "2026-08-20",
+      "outpatient_insurance": 0.0,
+      "selfpay": 0.0,
+      "product": 0.0,
+      "total": 0.0
+    },
+    {
+      "date": "2026-08-21",
+      "outpatient_insurance": 502740.0,
+      "selfpay": 0.0,
+      "product": 9000.0,
+      "total": 511740.0
+    },
+    {
+      "date": "2026-08-22",
+      "outpatient_insurance": 509350.0,
+      "selfpay": 55000.0,
+      "product": 14240.0,
+      "total": 578590.0
+    },
+    {
+      "date": "2026-08-24",
+      "outpatient_insurance": 429980.0,
+      "selfpay": 22000.0,
+      "product": 620.0,
+      "total": 452600.0
+    },
+    {
+      "date": "2026-08-25",
+      "outpatient_insurance": 618380.0,
+      "selfpay": 231000.0,
+      "product": 12910.0,
+      "total": 862290.0
+    },
+    {
+      "date": "2026-08-26",
+      "outpatient_insurance": 608420.0,
+      "selfpay": 0.0,
+      "product": 15520.0,
+      "total": 623940.0
+    },
+    {
+      "date": "2026-08-27",
+      "outpatient_insurance": 0.0,
+      "selfpay": 0.0,
+      "product": 0.0,
+      "total": 0.0
+    },
+    {
+      "date": "2026-08-28",
+      "outpatient_insurance": 574980.0,
+      "selfpay": 533500.0,
+      "product": 5150.0,
+      "total": 1113630.0
+    }
+  ],
+  "data_completeness": {
+    "data_cutoff_date": "2026-08-28",
+    "as_of_date": "2026-08-29",
+    "last_actual_sales_date": "2026-08-28",
+    "actual_data_complete_through": "2026-08-28",
+    "unrecorded_dates": [
+      "2026-08-29"
+    ],
+    "unrecorded_days_count": 1,
+    "unrecorded_estimated_amount": 988945,
+    "state_counts": {
+      "closed": 12,
+      "recorded": 17,
+      "open_zero": 0,
+      "unrecorded": 1,
+      "future": 1,
+      "unknown": 0
+    },
+    "day_data_status": [
+      {
+        "date": "2026-08-01",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-02",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-03",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-04",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-05",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-06",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-07",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-08",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-09",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-10",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-11",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-12",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-13",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-14",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-15",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-16",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-17",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-18",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-19",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-20",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-21",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-22",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-23",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-24",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-25",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-26",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-27",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-28",
+        "state": "recorded"
+      },
+      {
+        "date": "2026-08-29",
+        "state": "unrecorded"
+      },
+      {
+        "date": "2026-08-30",
+        "state": "closed"
+      },
+      {
+        "date": "2026-08-31",
+        "state": "future"
+      }
+    ],
+    "learnable_states": [
+      "recorded",
+      "open_zero"
+    ],
+    "note": "診療日ごとのデータ状態。closed=休診 / recorded=実績あり / open_zero=実績0円 / unrecorded=売上未反映 / future=これから / unknown=判定不能。レセコンに記録行が無いことは0円実績ではない。unrecorded を0円として扱わない。個人を識別しうる項目は含まない。"
+  },
+  "data_cutoff_date": "2026-08-28",
+  "actual_data_complete_through": "2026-08-28",
+  "unrecorded_dates": [
+    "2026-08-29"
+  ],
+  "unrecorded_days_count": 1,
+  "unrecorded_estimated_amount": 988945,
+  "day_data_status": [
+    {
+      "date": "2026-08-01",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-02",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-03",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-04",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-05",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-06",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-07",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-08",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-09",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-10",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-11",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-12",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-13",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-14",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-15",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-16",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-17",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-18",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-19",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-20",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-21",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-22",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-23",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-24",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-25",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-26",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-27",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-28",
+      "state": "recorded"
+    },
+    {
+      "date": "2026-08-29",
+      "state": "unrecorded"
+    },
+    {
+      "date": "2026-08-30",
+      "state": "closed"
+    },
+    {
+      "date": "2026-08-31",
+      "state": "future"
+    }
+  ],
+  "daily_breakdown_note": "daily_expected は合計する直前の見込みを日別に並べたもの（丸めていない）。status=remaining だけが事前予測（その診療日より前の見込み）で、elapsed_unrecorded は診療日が終わった後の実績反映待ちの見込みなので、事前予測と実績の比較には使わない。daily_actual は当月レセコンの確定実績を日別にしたもの。どちらも外来保険・自費・物販の3区分のみで、訪問保険・介護は含まない。金額と日付だけを持ち、患者単位の情報は一切含まない。",
+  "forecast_composition": {
+    "confirmed_actual": 16098430,
+    "locked_or_expected": 496988,
+    "remaining_forecast": 1955472,
+    "total_forecast": 18550889,
+    "labels": {
+      "confirmed_actual": "確定実績",
+      "locked_or_expected": "確度の高い見込み",
+      "remaining_forecast": "残り予測",
+      "total_forecast": "現時点着地見込み"
+    },
+    "confirmed_actual_detail": {
+      "gairai": 10468920,
+      "jihi": 3822500,
+      "buppin": 252370,
+      "homon": 1311860,
+      "kaigo": 242780
+    },
+    "locked_or_expected_detail": {
+      "visit_insurance_expected": 154968,
+      "care_expected": 342020
+    },
+    "remaining_forecast_detail": {
+      "elapsed_unrecorded": 988945,
+      "remaining": 966527
+    },
+    "confirmed_actual_through": "2026-08-28",
+    "actual_data_status": "imported",
+    "actual_data_warning": false,
+    "actual_data_note": "当月レセコンを取り込み済み",
+    "note": "confirmed_actual だけが実績。locked_or_expected は確度が高くても見込みであり、実績に含めない。actual_to_date_total は互換用で外来保険+自費+物販の確定分のみ"
+  },
+  "visit_care_forecast_total": 2051628,
+  "normal_baseline_forecast": 18866226,
+  "gap_to_normal_baseline": -315337,
+  "previous_year_actual": 21805410,
+  "yoy_diff": -3254521,
+  "yoy_rate": -14.9,
+  "progress_through_yesterday": {
+    "comparison_base": "外来保険+自費+物販（訪問保険・介護は入力遅れのため同日実績に含めず、月末着地見込みで別建て反映）",
+    "current_cutoff": "2026-08-28",
+    "prev_year_cutoff": "2025-08-28",
+    "current": {
+      "total": 14543790,
+      "insurance_outpatient": 10468920,
+      "selfpay": 3822500,
+      "product": 252370,
+      "clinic_days": 20
+    },
+    "prev_year_same_day": {
+      "total": 18101270,
+      "insurance_outpatient": 9878280,
+      "selfpay": 7972250,
+      "product": 250740,
+      "clinic_days": 21
+    },
+    "yoy_to_date_diff": -3557480,
+    "yoy_to_date_rate": -19.7,
+    "prev_year_same_bizdays": {
+      "total": 17356700,
+      "clinic_days": 20,
+      "outpatient_days_count": 19,
+      "insurance_outpatient": 9648450,
+      "selfpay": 7466250,
+      "product": 242000,
+      "outpatient_visit_count": 1117,
+      "outpatient_unique_patient_count": 750,
+      "outpatient_counts_through": "2025-08-27",
+      "outpatient_counts_source": {
+        "file": "resec_until_2026_07.xlsx",
+        "kind": "fixed",
+        "through": "2025-08-27"
+      },
+      "diff_vs_current": -2812910,
+      "rate": -16.2,
+      "note": "前年の月初から当年と同じ診療日数まで累計した参考値。木曜休診等で暦の同日比較がずれるため併記。",
+      "outpatient_days_note": "clinic_days は売上が発生した日の数で、外来診療日数とは一致しないことがある。外来3区分で比べてよいかは outpatient_days_count が当年の outpatient_actual_days_count と一致するかで判断すること。"
+    },
+    "note": "木曜休診の影響で暦の同日比較は診療日数がずれる場合があるため、同営業日数ベースの参考比較を併記。訪問・介護は月末着地見込みで反映。"
+  },
+  "landing_beats_prevyear": false,
+  "actual_unique_patients_to_date": 836,
+  "forecast_unique_patients_month": 876,
+  "previous_year_unique_patients": 891,
+  "unique_patients_logic_note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.619)。前年同月は monthly_feature_table の確定値。",
+  "forecast_low_80": 18277771,
+  "forecast_high_80": 18726839,
+  "insurance_forecast": 13798867,
+  "insurance_forecast_total": 13798867,
+  "outpatient_insurance_forecast": 11747240,
+  "visit_insurance_forecast": 1466828,
+  "care_forecast": 584800,
+  "visit_care_adjustment_amount": 494600,
+  "visit_care_logic_note": "訪問保険は月初入力遅れのため予約ペース補正(0.85)を適用せず過去12か月平均で見込み（訪問=1,466,828）。介護は2026-06の制度・算定運用変更以降、改定前の金額水準を使わない。['2026-06'] の訪問日単価×推定訪問日数12日（推定訪問日数（過去12か月の visit_service_days 中央値・12か月）。訪問予約データが無いため予定表ではない）で見込み（介護=584,800）。木曜休診の暦調整は非適用。",
+  "selfpay_forecast": 4471260,
+  "product_forecast": 280762,
+  "insurance_prevyear": 13393890,
+  "selfpay_prevyear": 8131750,
+  "product_prevyear": 279770,
+  "high_value_selfpay_low": 2332555,
+  "high_value_selfpay_high": 3576584,
+  "actual_days_count": 20,
+  "elapsed_unrecorded_days_count": 1,
+  "remaining_days_count": 1,
+  "outpatient_actual_days_count": 17,
+  "outpatient_elapsed_unrecorded_days_count": 1,
+  "outpatient_remaining_days_count": 1,
+  "outpatient_month_days_count": 19,
+  "outpatient_days_note": "外来保険・自費・物販のいずれかに売上が立った日を外来診療日として数える。木曜休診で訪問・介護だけ売上が立った日は含まない。actual_days_count は従来どおり『その日に何らかの売上があったか』で数えており、訪問・介護だけの日も含むため、この値とは一致しないことがある。",
+  "reservation_count_remaining": 86,
+  "reservation_factor": 1.1,
+  "reservation_growth_multiplier": 1.023,
+  "reservation_visible_remaining_as_of": 86,
+  "reservation_projected_final_remaining": 88,
+  "reservation_factor_raw_before_growth": 1.218,
+  "reservation_factor_after_growth": 1.246,
+  "reservation_factor_final": 1.1,
+  "reservation_growth_by_type": {
+    "混合・判定保留": 1.019,
+    "継続管理型": 1.018,
+    "都度治療型": 1.064,
+    "高単価型": 1.006
+  },
+  "reservation_growth_logic_note": "月中の予約増加を過去実績から見込み、現在見えている予約数だけで過小評価しないよう補正。過去12か月の同日(D29)→月末 残り予約 増加倍率(中央値)=1.02x。現残り予約86件 → 月末最終見込み88件。factor: 増加織込前1.22 → 織込後1.25 → 適用1.10（上下限[0.85,1.1]）。訪問・介護にはこの予約増加ロジックを適用せず、過去12か月平均で別建て。",
+  "outpatient_visit_actual_to_date": 1166,
+  "outpatient_unique_patients_actual_to_date": 785,
+  "outpatient_patient_counts_source": {
+    "file": "売上管理用データ.xlsx",
+    "kind": "current",
+    "through": "2026-08-28"
+  },
+  "outpatient_patient_counts_note": "外来来院回数＝訪問診療≠1 の明細行数、外来ユニーク患者数＝同じ明細に出る患者を対象期間全体で重複排除した実人数。日次のユニーク人数の合算では作れないため、元レセコンを直接数えている。分母は outpatient_actual_days_count（外来診療日数）。確定実績のみで、月末見込みは作らない。",
+  "insurance_actual_to_date": 12023560,
+  "selfpay_actual_to_date": 3822500,
+  "product_actual_to_date": 252370,
+  "insurance_remaining": 1775307,
+  "selfpay_remaining": 648760,
+  "product_remaining": 28392,
+  "leak_checks": {
+    "1_actual_to_date_取得": {
+      "ok": true,
+      "detail": "当月レセコン実績日数=20 / actual_data_through=2026-08-28 / status=反映済み"
+    },
+    "2_reservation_取得": {
+      "ok": true,
+      "detail": "as_of翌日以降の予約=86件 / reservation_data_through=2026-08-31 / status=反映済み"
+    },
+    "3_as_of超の実績を不使用": {
+      "ok": true,
+      "detail": "使用実績の最大日付<= as_of(2026-08-29) を満たす。as_of超の当月実績0件は未使用"
+    },
+    "4_未来リークなし": {
+      "ok": true,
+      "detail": "remaining日はすべてas_of超 / as_of後に作成された予約0件は除外"
+    },
+    "5_as_of感度": {
+      "ok": true,
+      "detail": "actual20日 + 経過未反映1日 + 残り1日 に分割（as_ofで変化）"
+    },
+    "6_当月実績未反映の明示": {
+      "ok": true,
+      "detail": "resec_data_status=反映済み（未反映なら画面で『当月実績未反映』を明示）"
+    }
+  },
+  "leak_checks_all_ok": true,
+  "pipeline_status": "OK"
+}
