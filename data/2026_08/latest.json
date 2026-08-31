@@ -1,8 +1,8 @@
 {
   "target_month": "2026-08",
-  "latest_as_of_date": "2026-08-30",
-  "latest_snapshot_dir": "snapshots/2026_08_30",
-  "generated_at": "2026-08-30 22:10:02",
+  "latest_as_of_date": "2026-08-31",
+  "latest_snapshot_dir": "snapshots/2026_08_31",
+  "generated_at": "2026-08-31 13:07:33",
   "model_version": "MDC Forecast Model v2.0",
   "dashboard_version": "MDC Forecast Console daily viewer",
   "note": "ローカル運用版で生成した日次スナップショット"
