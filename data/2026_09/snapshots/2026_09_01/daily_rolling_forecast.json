@@ -25,13 +25,11 @@
     "previous_month_close_status": "provisional_close",
     "previous_month_close_label": "暫定締め",
     "previous_month_pending_reasons": [
-      "month_not_ended",
-      "daily_data_incomplete",
+      "reconciliation_pending",
       "actuals_not_yet_stable"
     ],
     "previous_month_pending_labels": [
-      "対象月がまだ終わっていない",
-      "日次データが月末まで揃っていない",
+      "元CSVとの実績照合が通っていない",
       "実績がまだ安定していない"
     ],
     "months": {
@@ -45,13 +43,11 @@
         "state": "provisional_close",
         "state_label": "暫定締め",
         "pending_reasons": [
-          "month_not_ended",
-          "daily_data_incomplete",
+          "reconciliation_pending",
           "actuals_not_yet_stable"
         ],
         "pending_labels": [
-          "対象月がまだ終わっていない",
-          "日次データが月末まで揃っていない",
+          "元CSVとの実績照合が通っていない",
           "実績がまだ安定していない"
         ]
       },
