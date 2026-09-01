@@ -1,0 +1,9 @@
+{
+  "target_month": "2026-09",
+  "latest_as_of_date": "2026-09-01",
+  "latest_snapshot_dir": "snapshots/2026_09_01",
+  "generated_at": "2026-09-01 09:02:50",
+  "model_version": "MDC Forecast Model v2.0",
+  "dashboard_version": "MDC Forecast Console daily viewer",
+  "note": "ローカル運用版で生成した日次スナップショット"
+}
