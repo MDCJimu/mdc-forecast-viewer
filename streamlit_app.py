@@ -2518,6 +2518,12 @@ def _ymdate(s):
 AX = dict(grid=True, gridColor="#EDEFF3", domainColor="#E8EBF1",
           tickColor="#E8EBF1", labelColor="#8A94A3", labelFontSize=12)
 
+# 月次グラフの横軸は「暦の1か月ごと」に1目盛り。
+# 時間軸のまま目盛り粒度を自動に任せると、表示期間が短い月（今年度が4か月など）で
+# 週ごとの目盛りが選ばれ、それを %Y-%m で整形するので同じ月名が4〜5回並ぶ。
+# 目盛りの「本数」ではなく「間隔」を固定するのが要点。データ側は一切変えない。
+MONTH_TICK = {"interval": "month", "step": 1}
+
 
 def chart_total_sales(p):
     """月次総売上の推移（棒）。"""
@@ -2525,7 +2531,8 @@ def chart_total_sales(p):
     import altair as alt
     d = pd.DataFrame({"月": _ymdate(p["年月"]), "総売上": p["月間総売上"] / 1e4})
     ch = alt.Chart(d).mark_bar(color="#0B1F3A", opacity=.92).encode(
-        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55)),
+        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55,
+                                      tickCount=MONTH_TICK)),
         y=alt.Y("総売上:Q", title=None),
         tooltip=[alt.Tooltip("月:T", title="年月", format="%Y-%m"),
                  alt.Tooltip("総売上:Q", title="総売上(万円)", format=",.0f")])
@@ -2544,7 +2551,8 @@ def chart_breakdown(p):
     long["売上"] = long["売上"] / 1e4
     order = ["保険診療売上", "自費診療売上", "物販売上"]
     ch = alt.Chart(long).mark_bar().encode(
-        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55)),
+        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55,
+                                      tickCount=MONTH_TICK)),
         y=alt.Y("売上:Q", title=None, stack="zero"),
         color=alt.Color("区分:N", sort=order,
                         scale=alt.Scale(domain=order,
@@ -2568,7 +2576,8 @@ def chart_visits(p):
     long = d.melt(id_vars="月", value_vars=order, var_name="指標", value_name="値")
     ch = alt.Chart(long).mark_line(color="#0B1F3A", strokeWidth=2,
                                    interpolate="monotone").encode(
-        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55)),
+        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55,
+                                      tickCount=MONTH_TICK)),
         y=alt.Y("値:Q", title=None, scale=alt.Scale(zero=False, nice=True)),
         tooltip=[alt.Tooltip("月:T", title="年月", format="%Y-%m"),
                  alt.Tooltip("指標:N", title="指標"),
@@ -2800,7 +2809,8 @@ def chart_pf_stack(wide):
     long["売上"] = long["売上"] / 1e4
     long["順"] = long["分類"].map({n: o for _, n, _, o in PF_BUCKETS})
     ch = alt.Chart(long).mark_bar().encode(
-        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55)),
+        x=alt.X("月:T", axis=alt.Axis(format="%Y-%m", title=None, labelAngle=-55,
+                                      tickCount=MONTH_TICK)),
         y=alt.Y("売上:Q", title=None, stack="zero"),
         color=alt.Color("分類:N", sort=PF_LABELS,
                         scale=alt.Scale(domain=PF_LABELS, range=PF_COLORS),
