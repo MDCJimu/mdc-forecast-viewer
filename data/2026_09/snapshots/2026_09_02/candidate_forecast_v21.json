@@ -1,0 +1,72 @@
+{
+  "model_version": "MDC Forecast Model v2.1 candidate",
+  "model_status": "shadow",
+  "target_month": "2026-09",
+  "as_of_date": "2026-09-02",
+  "actual_data_through": "2026-09-01",
+  "generated_at": "2026-09-02 11:30:54",
+  "current_model_forecast_total": 20809072,
+  "candidate_forecast_total": 19756595,
+  "difference_vs_current": 1052477,
+  "difference_breakdown": {
+    "insurance_adjust_reduced": 483618,
+    "selfpay_adjust_removed": 547687,
+    "product_adjust_removed": 21173
+  },
+  "candidate_remaining_forecast_total": 15686302,
+  "candidate_remaining_daily_average": 871461,
+  "candidate_yoy_diff": 3925,
+  "candidate_yoy_rate": 0.0,
+  "reservation_count_factor": 1.0976,
+  "reservation_sales_factor_insurance": 1.05,
+  "reservation_sales_factor_selfpay": 1.0,
+  "reservation_sales_factor_product": 1.0,
+  "candidate_remaining_insurance": 10142918,
+  "candidate_remaining_selfpay": 5336729,
+  "candidate_remaining_product": 206655,
+  "visit_care_forecast_total": 2051628,
+  "explanation": {
+    "text": "現行モデルv2.0では、予約件数に基づく補正を外来保険・自費・物販すべてに適用しています。候補モデルv2.1では、予約件数との関連が強い外来保険だけを最大1.05まで補正し、自費と物販には一律の予約補正を掛けていません。このため候補モデルの着地見込みは現行モデルより約105万円低くなっています。訪問・介護は両モデルとも別建てで同額です。件数（来院・患者・初診）の見込みは現行の件数用factorを維持しており候補でも変わりません。",
+    "past12_weekday_avg_remaining_daily": 841733,
+    "current_month_actual_daily": 1203860,
+    "current_over_weekday_model_r": 1.6487,
+    "pre_adjust_remaining_insurance": 10163482,
+    "insurance_adjust_current": 991792,
+    "insurance_adjust_candidate": 508174,
+    "selfpay_adjust_current": 547687,
+    "selfpay_adjust_candidate": 0,
+    "product_adjust_current": 21173,
+    "product_adjust_candidate": 0,
+    "visit_care_separate_amount": 2051628
+  },
+  "comparison_lines": {
+    "当月実績ペース延長": {
+      "month": 26128828,
+      "yoy_rate": 32.3
+    },
+    "過去平均回帰型_予約補正なし": {
+      "month": 19248421,
+      "yoy_rate": -2.6
+    },
+    "v2_1候補モデル": {
+      "month": 19756595,
+      "yoy_rate": 0.0
+    },
+    "v2_0現行基準予測": {
+      "month": 20809072,
+      "yoy_rate": 5.3
+    },
+    "保守ライン": {
+      "month": 16849480
+    },
+    "前年同月実績": {
+      "month": 19752670
+    }
+  },
+  "recompute_check": {
+    "recomputed_current_forecast_total": 20809072,
+    "production_current_forecast_total": 20809072,
+    "gap_yen": 0,
+    "match": true
+  }
+}
