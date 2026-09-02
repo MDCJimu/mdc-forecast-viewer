@@ -25,12 +25,10 @@
     "previous_month_close_status": "provisional_close",
     "previous_month_close_label": "暫定締め",
     "previous_month_pending_reasons": [
-      "reconciliation_pending",
-      "actuals_not_yet_stable"
+      "reconciliation_pending"
     ],
     "previous_month_pending_labels": [
-      "元CSVとの実績照合が通っていない",
-      "実績がまだ安定していない"
+      "元CSVとの実績照合が通っていない"
     ],
     "months": {
       "2026-09": {
@@ -43,12 +41,10 @@
         "state": "provisional_close",
         "state_label": "暫定締め",
         "pending_reasons": [
-          "reconciliation_pending",
-          "actuals_not_yet_stable"
+          "reconciliation_pending"
         ],
         "pending_labels": [
-          "元CSVとの実績照合が通っていない",
-          "実績がまだ安定していない"
+          "元CSVとの実績照合が通っていない"
         ]
       },
       "2026-07": {
