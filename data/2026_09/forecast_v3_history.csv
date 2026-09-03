@@ -1,0 +1,2 @@
+﻿target_month,as_of_date,generated_at,data_cutoff,config_version,progress,elapsed_clinic_days,total_clinic_days,v21_forecast_total,v3_forecast_total,difference_vs_v21,ensemble_weight,v21_weight,interval_80_low,interval_80_high,interval_90_low,interval_90_high,interval_status,actual_total,v21_error,v3_error,winner,interval_80_hit,interval_90_hit
+2026-09,2026-09-04,2026-09-04 08:51:04,2026-09-03,v3-2026-07-25,0.1,2,20,19697510,4011208,-15686302,1.0,0.0,5241329,5241329,5241329,5241329,provisional_calibration,,,,,,
