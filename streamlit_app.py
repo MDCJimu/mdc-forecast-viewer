@@ -2790,6 +2790,27 @@ def read_portfolio():
         return None
 
 
+PF_CLOSE_FINALIZED = "finalized"
+
+
+def pf_finalized_only(df):
+    """確定月だけに絞る。close_status 列が無い古い形式はそのまま返す。
+
+    履歴として持つことと、既定の集計へ含めることは別。暫定締めの月は実績が
+    まだ動くので、期間集計の既定からは外す（過去実績画面と同じ考え方）。
+    """
+    if df is None or "close_status" not in df.columns:
+        return df
+    return df[df["close_status"] == PF_CLOSE_FINALIZED]
+
+
+def pf_provisional_months(df):
+    """暫定締めとして収録されている月の一覧。"""
+    if df is None or "close_status" not in df.columns:
+        return []
+    return sorted(df.loc[df["close_status"] != PF_CLOSE_FINALIZED, "年月"].unique())
+
+
 def pf_pivot(df):
     """年月×表示分類名 の売上金額テーブル。"""
     p = df.pivot(index="年月", columns="表示分類名", values="売上金額")
@@ -3380,8 +3401,26 @@ def render_portfolio(nav=None):
         return
 
     meta = read_json(hist_path(F_PORTFOLIO_META)) or {}
-    wide_all = pf_pivot(df)
+    # 期間集計は既定で確定月のみ。暫定締め月は「履歴にはあるが既定では集計しない」。
+    prov = pf_provisional_months(df)
+    include_prov = False
+    if prov:
+        include_prov = st.checkbox(
+            "暫定締め月を含める", value=False, key="pf_include_prov",
+            help="暫定締めの月は実績が未確定です。既定では期間集計に含めません。")
+    agg_df = df if include_prov else pf_finalized_only(df)
+    if agg_df is None or agg_df.empty:
+        st.warning("期間集計に使える確定月がありません。")
+        return
+    wide_all = pf_pivot(agg_df)
     months = list(wide_all.index)
+    if prov:
+        _p = "・".join(prov)
+        st.markdown(
+            f"<div class='pf-pnote'>暫定締めの月（{_html.escape(_p)}）は"
+            + ("集計に含めています。実績はまだ動きます。"
+               if include_prov else "既定では集計に含めていません。")
+            + "</div>", unsafe_allow_html=True)
 
     # ---- 期間選択（1枚のカードにまとめる） ----
     with st.container(border=True):
