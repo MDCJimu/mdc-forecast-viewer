@@ -106,14 +106,18 @@ PAGE_HISTORY = "過去実績"
 PAGE_PORTFOLIO = "売上ポートフォリオ"
 
 # 分類コード → (表示名, 色, 積み上げ順。0がグラフの最下段)
+# 院内表示の4分類。サブスク型＝月額課金ではなく、継続的・反復的に発生する売上。
 PF_BUCKETS = [
-    ("stock", "ストック型売上", "#0B1F3A", 0),
-    ("spot", "スポット型売上", "#2F6BD6", 1),
-    ("high_value", "高単価型売上", "#B08A4E", 2),
-    ("unclassified", "混合・未分類", "#9AA3B0", 3),
+    ("subscription", "サブスク型", "#0B1F3A", 0),
+    ("selfpay", "自費診療", "#B08A4E", 1),
+    ("insurance", "保険診療", "#2F6BD6", 2),
+    ("other", "その他", "#9AA3B0", 3),
 ]
 PF_LABELS = [n for _, n, _, _ in PF_BUCKETS]
 PF_COLORS = [c for _, _, c, _ in PF_BUCKETS]
+PF_CODES = [c for c, _, _, _ in PF_BUCKETS]
+PF_SUB, PF_SELF, PF_INS, PF_OTHER = PF_LABELS
+PF_SUB_NOTE = "サブスク型：メンテ・訪問・介護など、継続的に発生する売上"
 
 st.set_page_config(page_title="MDC Forecast Console（日次ローリング予測）",
                    page_icon="📈", layout="wide")
@@ -2800,7 +2804,7 @@ def pf_cv(wide):
 
 
 def chart_pf_stack(wide):
-    """分類別の積み上げ売上推移。ストック型を最下段に固定。"""
+    """分類別の積み上げ売上推移。サブスク型を最下段に固定。"""
     import pandas as pd
     import altair as alt
     d = wide.reset_index()
@@ -3145,9 +3149,15 @@ def read_pf_forecast():
     if not os.path.isfile(p):
         return None
     try:
-        return _load_pf_forecast(p, os.path.getmtime(p))
+        fc = _load_pf_forecast(p, os.path.getmtime(p))
     except Exception:
         return None
+    # 旧4分類（ストック型/高単価型…）で作られたスナップショットは表示に使わない。
+    # 分類の定義が違うものを新しい名前で並べると、そのまま誤読になる。
+    # 次の日次更新で新分類のスナップショットが出れば自動で復帰する。
+    if not fc or {b.get("分類コード") for b in (fc.get("buckets") or [])} != set(PF_CODES):
+        return None
+    return fc
 
 
 def last_pf_forecast_asof():
@@ -3203,7 +3213,7 @@ def render_portfolio_forecast(fc, df):
     total = int(fc["current_forecast_total"])
     amt = {b["表示分類名"]: int(b["売上見込み"]) for b in fc["buckets"]}
     share = {k: v / total * 100 for k, v in amt.items()}
-    hv = fc["high_value_range"]
+    sp = fc["selfpay_range"]
 
     # ---- A. 警告帯 ----
     st.markdown(
@@ -3213,42 +3223,42 @@ def render_portfolio_forecast(fc, df):
         "月末後に確定実績と照合します。</div>", unsafe_allow_html=True)
 
     # ---- B. ヒーロー ----
-    stock_pct = share["ストック型売上"]
-    hv_pct = share["高単価型売上"]
+    sub_pct = share[PF_SUB]
+    sp_pct = share[PF_SELF]
     st.markdown(
         "<div class='pf-hero est'>"
         "<div class='l'>"
         f"<div class='k'>Forecast · as of {_html.escape(as_of)}</div>"
-        f"<div class='big'>{stock_pct:.1f}<span>%</span></div>"
-        "<div class='cap'>がストック型売上の見込み</div>"
-        f"<div class='sub'>7月の基準予測 {manv(total)} 万円のうち、"
-        f"{manv(amt['ストック型売上'])} 万円が継続管理と訪問・介護によるストック型の見込みです。</div>"
+        f"<div class='big'>{sub_pct:.1f}<span>%</span></div>"
+        f"<div class='cap'>が{PF_SUB}の見込み</div>"
+        f"<div class='sub'>基準予測 {manv(total)} 万円のうち、"
+        f"{manv(amt[PF_SUB])} 万円がメンテ・訪問・介護など継続的に発生する売上の見込みです。</div>"
         "</div>"
         "<div class='r'>"
-        f"<div class='it'>高単価型見込み<b>{manv(amt['高単価型売上'])}"
+        f"<div class='it'>{PF_SELF}見込み<b>{manv(amt[PF_SELF])}"
         "<span style='font-size:12px'> 万円</span></b></div>"
-        f"<div class='it'>高単価依存度<b>{hv_pct:.1f}<span style='font-size:12px'> %</span></b></div>"
-        f"<div class='rng'>高単価型 参考レンジ "
-        f"<b>{manv(hv['参考下限'])} 〜 {manv(hv['参考上限'])} 万円</b><br>"
-        f"（月次変動係数 {hv['使用した変動係数']}% による±1σ・確定値ではありません）</div>"
+        f"<div class='it'>自費依存度<b>{sp_pct:.1f}<span style='font-size:12px'> %</span></b></div>"
+        f"<div class='rng'>{PF_SELF} 参考レンジ "
+        f"<b>{manv(sp['参考下限'])} 〜 {manv(sp['参考上限'])} 万円</b><br>"
+        f"（月次変動係数 {sp['使用した変動係数']}% による±1σ・確定値ではありません）</div>"
         "</div></div>", unsafe_allow_html=True)
 
     # ---- C. KPIカード ----
     row1 = "".join([
-        pf_card("ストック型見込み", manv(amt["ストック型売上"]), "万円",
-                f"構成比 <b>{share['ストック型売上']:.1f}%</b>", "a-navy"),
-        pf_card("スポット型見込み", manv(amt["スポット型売上"]), "万円",
-                f"構成比 <b>{share['スポット型売上']:.1f}%</b>", "a-blue"),
-        pf_card("高単価型見込み", manv(amt["高単価型売上"]), "万円",
-                f"構成比 <b>{share['高単価型売上']:.1f}%</b>", "a-gold"),
-        pf_card("混合・未分類見込み", manv(amt["混合・未分類"]), "万円",
-                f"構成比 <b>{share['混合・未分類']:.1f}%</b>", "a-gray"),
+        pf_card(f"{PF_SUB}見込み", manv(amt[PF_SUB]), "万円",
+                f"構成比 <b>{share[PF_SUB]:.1f}%</b>", "a-navy"),
+        pf_card(f"{PF_SELF}見込み", manv(amt[PF_SELF]), "万円",
+                f"構成比 <b>{share[PF_SELF]:.1f}%</b>", "a-gold"),
+        pf_card(f"{PF_INS}見込み", manv(amt[PF_INS]), "万円",
+                f"構成比 <b>{share[PF_INS]:.1f}%</b>", "a-blue"),
+        pf_card(f"{PF_OTHER}見込み", manv(amt[PF_OTHER]), "万円",
+                f"構成比 <b>{share[PF_OTHER]:.1f}%</b>", "a-gray"),
     ])
     row2 = "".join([
-        pf_card("ストック比率", f"{stock_pct:.1f}", "%", "当月見込み", "a-green", small=True),
-        pf_card("高単価依存度", f"{hv_pct:.1f}", "%", "当月見込み", "a-gold", small=True),
-        pf_card("高単価型 参考レンジ", f"{manv(hv['参考下限'])}〜{manv(hv['参考上限'])}", "万円",
-                f"変動係数 <b>{hv['使用した変動係数']}%</b>・確定値ではありません", "a-gold",
+        pf_card("サブスク比率", f"{sub_pct:.1f}", "%", "当月見込み", "a-green", small=True),
+        pf_card("自費依存度", f"{sp_pct:.1f}", "%", "当月見込み", "a-gold", small=True),
+        pf_card(f"{PF_SELF} 参考レンジ", f"{manv(sp['参考下限'])}〜{manv(sp['参考上限'])}", "万円",
+                f"変動係数 <b>{sp['使用した変動係数']}%</b>・確定値ではありません", "a-gold",
                 small=True),
         pf_card("基準予測合計", manv(total), "万円",
                 f"訪問・介護 <b>{manv(fc['visit_care_forecast_total'])}</b> 万円を含む",
@@ -3299,14 +3309,16 @@ def render_portfolio_forecast(fc, df):
         "<div class='mfc-note'><b>これは当月見込みです。</b>"
         f"{as_of} 時点の確定実績・登録済み予約・過去傾向から算出した推定値であり、"
         "確定値ではありません。月末後に確定実績と照合します。<br>"
-        f"<b>分類方法</b>　{ap.get('名称', '想定売上加重按分')}。"
-        f"予約1件あたりの想定売上（{lt}）で加重して分解しています。"
+        f"<b>分類方法</b>　{PF_SELF}と{PF_OTHER}（物販）は会計区分の見込みそのままで、"
+        "推定が入るのはサブスク型に入れる継続管理の保険分だけです。"
+        f"{ap.get('名称', '想定売上加重按分')}で、予約1件あたりの想定売上（{lt}）により"
+        "継続管理型の金額を求め、確定実績の保険内訳比を掛けて保険分を取り出しています。"
         f"予約を伴わない来院と突合の残差として {manv(ap.get('残差先取り額', 0))} 万円を先取りし、"
         "残りを登録済み予約から按分しました。キャンセル済みの予約は按分から除外しています。<br>"
-        f"<b>訪問・介護</b>　{manv(fc['visit_care_forecast_total'])} 万円はストック型に含めています。"
+        f"<b>訪問・介護</b>　{manv(fc['visit_care_forecast_total'])} 万円はサブスク型に含めています。"
         "反復性が高く、確定実績の売上ポートフォリオと同じ定義です。<br>"
-        "<b>高単価型の参考レンジ</b>　確定実績から求めた月次変動係数による±1σの目安であり、"
-        "予測区間ではありません。高単価型は月ごとの振れが大きいため、点推定だけでは誤解を招きます。<br>"
+        f"<b>{PF_SELF}の参考レンジ</b>　確定実績から求めた月次変動係数による±1σの目安であり、"
+        f"予測区間ではありません。{PF_SELF}は月ごとの振れが大きいため、点推定だけでは誤解を招きます。<br>"
         "<b>合計</b>　4分類の合計は基準予測合計と円単位で一致します。<br>"
         "<b>個人情報</b>　本データは集計済みで、個人または担当者を識別しうる項目は一切含みません。"
         "</div>", unsafe_allow_html=True)
@@ -3324,8 +3336,9 @@ def render_portfolio(nav=None):
     st.markdown(
         "<div class='mfc-title'>MDC Forecast Console"
         "<span class='mfc-vchip'>Portfolio</span></div>"
-        "<div class='mfc-sub'>この医院の売上が、安定収益なのか、都度獲得型なのか、"
-        "高単価に依存しているのかを見る画面です。</div>",
+        "<div class='mfc-sub'>この医院の売上が、継続的に発生する安定収益なのか、"
+        "自費に依存しているのかを見る画面です。"
+        f"{PF_SUB_NOTE}。</div>",
         unsafe_allow_html=True)
 
     if nav:
@@ -3401,65 +3414,65 @@ def render_portfolio(nav=None):
     cvs = pf_cv(wide)
 
     # ---- A. 結論（ヒーロー） ----
-    stock_pct = shares["ストック型売上"]
-    hv_pct = shares["高単価型売上"]
-    hv_m = wide["高単価型売上"]
+    sub_pct = shares[PF_SUB]
+    sp_pct = shares[PF_SELF]
+    sp_m = wide[PF_SELF]
     # 振れ幅は2か月以上ないと意味を持たない（単月では常に1.00倍になる）
-    swing = (hv_m.max() / hv_m.min()) if (len(wide) >= 2 and hv_m.min() > 0) else None
-    driver = cvs.drop("混合・未分類").idxmax() if cvs is not None else "高単価型売上"
+    swing = (sp_m.max() / sp_m.min()) if (len(wide) >= 2 and sp_m.min() > 0) else None
+    driver = cvs.drop(PF_OTHER).idxmax() if cvs is not None else PF_SELF
 
     if len(wide) == 1:
-        lead = (f"{ym_jp(a_hi)}は、売上の <b>{stock_pct:.1f}%</b> がストック型、"
-                f"高単価型が <b>{hv_pct:.1f}%</b> でした。")
-    elif driver != "高単価型売上":
-        lead = (f"売上の <b>{stock_pct:.1f}%</b> がストック型。"
+        lead = (f"{ym_jp(a_hi)}は、売上の <b>{sub_pct:.1f}%</b> が{PF_SUB}、"
+                f"{PF_SELF}が <b>{sp_pct:.1f}%</b> でした。")
+    elif driver != PF_SELF:
+        lead = (f"売上の <b>{sub_pct:.1f}%</b> が{PF_SUB}。"
                 f"この期間は <b>{driver}</b> が最も大きく振れています。")
     else:
-        lead = (f"売上の <b>{stock_pct:.1f}%</b> がストック型。"
-                f"高単価型が <b>{hv_pct:.1f}%</b> を占め、月次変動を押し上げる構造です。")
+        lead = (f"売上の <b>{sub_pct:.1f}%</b> が{PF_SUB}。"
+                f"{PF_SELF}が <b>{sp_pct:.1f}%</b> を占め、月次変動を押し上げる構造です。")
 
     st.markdown(
         "<div class='pf-hero'>"
         "<div class='l'>"
         "<div class='k'>Conclusion</div>"
-        f"<div class='big'>{stock_pct:.1f}<span>%</span></div>"
-        "<div class='cap'>がストック型売上</div>"
-        "<div class='sub'>継続管理と訪問・介護による反復収益。"
+        f"<div class='big'>{sub_pct:.1f}<span>%</span></div>"
+        f"<div class='cap'>が{PF_SUB}</div>"
+        "<div class='sub'>メンテ・訪問・介護など、継続的に発生する売上。"
         "この層が厚いほど、売上の土台は崩れにくくなります。</div>"
         "</div>"
         "<div class='r'>"
         f"<div class='it'>期間の総売上<b>{manv(total)}<span style='font-size:12px'> 万円</span></b></div>"
         f"<div class='it'>月あたり平均<b>{manv(total / len(wide))}"
         "<span style='font-size:12px'> 万円</span></b></div>"
-        f"<div class='it'>高単価依存度<b>{hv_pct:.1f}"
+        f"<div class='it'>自費依存度<b>{sp_pct:.1f}"
         "<span style='font-size:12px'> %</span></b></div>"
         "</div></div>"
         f"<div class='pf-lead'>{lead}</div>", unsafe_allow_html=True)
 
     # ---- B. KPIカード ----
     row1 = "".join([
-        pf_card("ストック型売上", manv(amounts["ストック型売上"]), "万円",
-                f"構成比 <b>{shares['ストック型売上']:.1f}%</b>", "a-navy"),
-        pf_card("スポット型売上", manv(amounts["スポット型売上"]), "万円",
-                f"構成比 <b>{shares['スポット型売上']:.1f}%</b>", "a-blue"),
-        pf_card("高単価型売上", manv(amounts["高単価型売上"]), "万円",
-                f"構成比 <b>{shares['高単価型売上']:.1f}%</b>", "a-gold"),
-        pf_card("混合・未分類", manv(amounts["混合・未分類"]), "万円",
-                f"構成比 <b>{shares['混合・未分類']:.1f}%</b>", "a-gray"),
+        pf_card(PF_SUB, manv(amounts[PF_SUB]), "万円",
+                f"構成比 <b>{shares[PF_SUB]:.1f}%</b>", "a-navy"),
+        pf_card(PF_SELF, manv(amounts[PF_SELF]), "万円",
+                f"構成比 <b>{shares[PF_SELF]:.1f}%</b>", "a-gold"),
+        pf_card(PF_INS, manv(amounts[PF_INS]), "万円",
+                f"構成比 <b>{shares[PF_INS]:.1f}%</b>", "a-blue"),
+        pf_card(PF_OTHER, manv(amounts[PF_OTHER]), "万円",
+                f"構成比 <b>{shares[PF_OTHER]:.1f}%</b>", "a-gray"),
     ])
     cv_na = "変動係数は3か月以上で算出します"
     row2 = "".join([
-        pf_card("ストック比率", f"{stock_pct:.1f}", "%",
-                f"月次変動係数 <b>{cvs['ストック型売上']:.1f}%</b>" if cvs is not None else cv_na,
+        pf_card("サブスク比率", f"{sub_pct:.1f}", "%",
+                f"月次変動係数 <b>{cvs[PF_SUB]:.1f}%</b>" if cvs is not None else cv_na,
                 "a-green", small=True),
-        pf_card("高単価依存度", f"{hv_pct:.1f}", "%",
-                f"月次変動係数 <b>{cvs['高単価型売上']:.1f}%</b>" if cvs is not None else cv_na,
+        pf_card("自費依存度", f"{sp_pct:.1f}", "%",
+                f"月次変動係数 <b>{cvs[PF_SELF]:.1f}%</b>" if cvs is not None else cv_na,
                 "a-gold", small=True),
-        pf_card("高単価型の振れ幅", f"{swing:.2f}" if swing else "—", "倍",
-                (f"最小 <b>{manv(hv_m.min())}</b> 〜 最大 <b>{manv(hv_m.max())}</b> 万円"
+        pf_card(f"{PF_SELF}の振れ幅", f"{swing:.2f}" if swing else "—", "倍",
+                (f"最小 <b>{manv(sp_m.min())}</b> 〜 最大 <b>{manv(sp_m.max())}</b> 万円"
                  if swing else "2か月以上の期間で算出します"), "a-gold", small=True),
-        pf_card("未分類率", f"{shares['混合・未分類']:.1f}", "%",
-                "分類辞書で判定できない売上・予約外来院・残差", "a-gray", small=True),
+        pf_card(f"{PF_OTHER}比率", f"{shares[PF_OTHER]:.1f}", "%",
+                "物販売上", "a-gray", small=True),
     ])
     st.markdown(f"<div class='pf-grid'>{row1}</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='pf-grid'>{row2}</div>", unsafe_allow_html=True)
@@ -3471,7 +3484,7 @@ def render_portfolio(nav=None):
     with st.container(border=True):
         st.markdown("<div class='pf-ch'><div class='t'>分類別の積み上げ売上</div>"
                     f"<div class='s'>直近24か月（{trend.index[0]} 〜 {trend.index[-1]}）"
-                    "・ストック型が最下段・単位：万円</div></div>", unsafe_allow_html=True)
+                    f"・{PF_SUB}が最下段・単位：万円</div></div>", unsafe_allow_html=True)
         st.altair_chart(chart_pf_stack(trend), width="stretch")
 
     # ---- D. 構成比 ----
@@ -3483,7 +3496,7 @@ def render_portfolio(nav=None):
                     unsafe_allow_html=True)
         c1, c2 = st.columns([1.1, 1], gap="medium")
         with c1:
-            st.altair_chart(chart_pf_donut(shares, "ストック型売上", f"{stock_pct:.1f}%"),
+            st.altair_chart(chart_pf_donut(shares, PF_SUB, f"{sub_pct:.1f}%"),
                             width="stretch")
         with c2:
             chips = "".join(
@@ -3507,14 +3520,14 @@ def render_portfolio(nav=None):
                         "左下＝大きく安定、右上＝大きく不安定。</div></div>",
                         unsafe_allow_html=True)
             st.altair_chart(chart_pf_matrix(shares, cvs, amounts), width="stretch")
-            ratio = cvs["高単価型売上"] / max(cvs["ストック型売上"], 0.1)
+            ratio = cvs[PF_SELF] / max(cvs[PF_SUB], 0.1)
             st.markdown(
-                f"<div class='pf-mx'><b>ストック型は安定した土台、"
-                f"高単価型は売上を押し上げるが月次変動も大きい。</b><br>"
-                f"ストック型は構成比 <b>{stock_pct:.1f}%</b> に対し変動係数 "
-                f"<b>{cvs['ストック型売上']:.1f}%</b>。高単価型は構成比 <b>{hv_pct:.1f}%</b> に対し "
-                f"<b>{cvs['高単価型売上']:.1f}%</b> で、<b>{ratio:.1f}倍</b> 振れます。"
-                "土台をストック型が支え、振れ幅を高単価型が生む構造です。</div>",
+                f"<div class='pf-mx'><b>{PF_SUB}は安定した土台、"
+                f"{PF_SELF}は売上を押し上げるが月次変動も大きい。</b><br>"
+                f"{PF_SUB}は構成比 <b>{sub_pct:.1f}%</b> に対し変動係数 "
+                f"<b>{cvs[PF_SUB]:.1f}%</b>。{PF_SELF}は構成比 <b>{sp_pct:.1f}%</b> に対し "
+                f"<b>{cvs[PF_SELF]:.1f}%</b> で、<b>{ratio:.1f}倍</b> 振れます。"
+                f"土台を{PF_SUB}が支え、振れ幅を{PF_SELF}が生む構造です。</div>",
                 unsafe_allow_html=True)
 
     # ---- F. 月次テーブル ----
@@ -3540,10 +3553,15 @@ def render_portfolio(nav=None):
     learned_txt = "／".join(f"{k} {v:,}円" for k, v in learned.items())
     st.markdown(
         "<div class='mfc-note'><b>分類の定義</b>　"
-        "ストック型＝継続管理型（検診・メンテ等の定期来院）＋訪問診療・介護。"
-        "スポット型＝都度治療型。高単価型＝補綴・自費中心。"
-        "混合・未分類＝分類辞書で判定できないもの、予約を伴わない来院、突合の残差。<br>"
-        f"<b>按分方法</b>　同じ来院日に複数の分類が混在する場合、"
+        f"{PF_SUB}＝メンテ・検診・SPT・歯周/DH管理などの継続管理に紐づく保険売上"
+        "＋訪問診療＋介護。月額課金ではなく、継続的・反復的に発生する売上という意味です。"
+        f"{PF_SELF}＝レセコンの自費診療売上そのまま（矯正・インプラント・自費補綴・"
+        "ホワイトニング等。継続通院する矯正もここに含みます）。"
+        f"{PF_INS}＝外来保険売上から継続管理の保険分を除いたもの。"
+        f"{PF_OTHER}＝物販売上。<br>"
+        f"<b>按分方法</b>　金額は会計区分（保険・自費・物販）で決めています。"
+        f"推定が入るのは{PF_SUB}に入れる継続管理の保険分だけで、"
+        "同じ来院日に複数の分類が混在する場合は"
         f"{ap.get('名称', '想定売上加重按分')}で分解しています"
         + (f"（1予約あたり売上の学習値：{learned_txt}）。" if learned_txt else "。") +
         "分類ごとの金額は<b>推定値</b>であり、確定した内訳ではありません。"
