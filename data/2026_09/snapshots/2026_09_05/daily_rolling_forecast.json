@@ -1,7 +1,7 @@
 {
   "target_month": "2026-09",
   "as_of_date": "2026-09-05",
-  "generated_at": "2026-09-05 07:49:01",
+  "generated_at": "2026-09-05 16:43:53",
   "forecast_mode": "日次ローリング予測",
   "model_version": "MDC Forecast Model v2.0",
   "model_roles": {
@@ -78,11 +78,11 @@
   },
   "reservation_data_status": "fresh",
   "reservation_source": {
-    "file": "reservation_20260905074747864018.csv",
+    "file": "reservation_20260905163302903759.csv",
     "input_date": "2026-09-05",
-    "created_max": "2026-09-04",
+    "created_max": "2026-09-05",
     "months_in_file": {
-      "2026-09": 1221
+      "2026-09": 1242
     },
     "adopted_month": "2026-09",
     "note": "current フォルダの最新CSVから対象月のみ抽出。前月CSVは流用しない"
@@ -142,21 +142,21 @@
     "visit": {
       "available": true,
       "label": "見込",
-      "forecast": 1409,
+      "forecast": 1437,
       "actual_to_date": 228,
       "prevyear": 1358.0
     },
     "shoshin": {
       "available": true,
       "label": "見込",
-      "forecast": 40,
+      "forecast": 41,
       "actual_to_date": 8,
       "prevyear": 32.0
     },
     "patient_total": {
       "available": true,
       "label": "見込",
-      "forecast": 892,
+      "forecast": 910,
       "actual_to_date": 203,
       "prevyear": 860.0,
       "note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.633)。前年同月は monthly_feature_table の確定値。"
@@ -164,186 +164,186 @@
     "cancel": {
       "available": true,
       "label": "登録済み予約(as_of時点)",
-      "current_rate": 9.8,
-      "current_reservations": 1221,
-      "current_cancels": 120,
+      "current_rate": 10.1,
+      "current_reservations": 1242,
+      "current_cancels": 125,
       "prevyear_rate": 16.2
     },
     "reservation_composition": {
       "available": true,
       "label": "登録済み予約(当月・as_of時点)",
-      "current_total": 1221,
+      "current_total": 1242,
       "types": {
         "継続管理型": {
-          "current": 635,
+          "current": 638,
           "prevyear": 751.0
         },
         "都度治療型": {
-          "current": 316,
+          "current": 325,
           "prevyear": 380.0
         },
         "高単価型": {
-          "current": 226,
+          "current": 234,
           "prevyear": 272.0
         },
         "混合・判定保留": {
-          "current": 44,
+          "current": 45,
           "prevyear": 108.0
         }
       }
     }
   },
   "thursday_closed_target": true,
-  "current_forecast_total": 20620369,
+  "current_forecast_total": 20983419,
   "conservative_forecast": 17721824,
   "v2_month_start_forecast": 19019243,
   "actual_to_date_total": 3286050,
-  "elapsed_unrecorded_total": 943045,
-  "remaining_forecast_total": 14339647,
+  "elapsed_unrecorded_total": 965447,
+  "remaining_forecast_total": 14680295,
   "daily_expected": [
     {
       "date": "2026-09-05",
       "status": "elapsed_unrecorded",
-      "outpatient_insurance": 656937.5751278776,
-      "selfpay": 269466.7642048273,
-      "product": 16640.175061722894,
-      "total": 943044.5143944279
+      "outpatient_insurance": 672543.5582474312,
+      "selfpay": 275868.12398797367,
+      "product": 17035.473338076037,
+      "total": 965447.1555734809
     },
     {
       "date": "2026-09-07",
       "status": "remaining",
-      "outpatient_insurance": 562050.6889136177,
-      "selfpay": 349182.04238897545,
-      "product": 10433.755719151344,
-      "total": 921666.4870217445
+      "outpatient_insurance": 575402.5717950498,
+      "selfpay": 357477.09090726555,
+      "product": 10681.616431936613,
+      "total": 943561.279134252
     },
     {
       "date": "2026-09-08",
       "status": "remaining",
-      "outpatient_insurance": 524708.9173009559,
-      "selfpay": 229567.90040013558,
-      "product": 11640.016461016634,
-      "total": 765916.834162108
+      "outpatient_insurance": 537173.7218974717,
+      "selfpay": 235021.4364956139,
+      "product": 11916.532689162954,
+      "total": 784111.6910822486
     },
     {
       "date": "2026-09-09",
       "status": "remaining",
-      "outpatient_insurance": 528206.7291986159,
-      "selfpay": 289246.57553522586,
-      "product": 10821.258825322897,
-      "total": 828274.5635591646
+      "outpatient_insurance": 540754.626611705,
+      "selfpay": 296117.81771423004,
+      "product": 11078.324928639391,
+      "total": 847950.7692545744
     },
     {
       "date": "2026-09-11",
       "status": "remaining",
-      "outpatient_insurance": 533842.0811565685,
-      "selfpay": 421627.71047112317,
-      "product": 9970.977182218337,
-      "total": 965440.7688099099
+      "outpatient_insurance": 546523.8500528218,
+      "selfpay": 431643.75336693035,
+      "product": 10207.844287225786,
+      "total": 988375.447706978
     },
     {
       "date": "2026-09-12",
       "status": "remaining",
-      "outpatient_insurance": 656937.5751278776,
-      "selfpay": 269466.7642048273,
-      "product": 16640.175061722894,
-      "total": 943044.5143944279
+      "outpatient_insurance": 672543.5582474312,
+      "selfpay": 275868.12398797367,
+      "product": 17035.473338076037,
+      "total": 965447.1555734809
     },
     {
       "date": "2026-09-14",
       "status": "remaining",
-      "outpatient_insurance": 562050.6889136177,
-      "selfpay": 349182.04238897545,
-      "product": 10433.755719151344,
-      "total": 921666.4870217445
+      "outpatient_insurance": 575402.5717950498,
+      "selfpay": 357477.09090726555,
+      "product": 10681.616431936613,
+      "total": 943561.279134252
     },
     {
       "date": "2026-09-15",
       "status": "remaining",
-      "outpatient_insurance": 524708.9173009559,
-      "selfpay": 229567.90040013558,
-      "product": 11640.016461016634,
-      "total": 765916.834162108
+      "outpatient_insurance": 537173.7218974717,
+      "selfpay": 235021.4364956139,
+      "product": 11916.532689162954,
+      "total": 784111.6910822486
     },
     {
       "date": "2026-09-16",
       "status": "remaining",
-      "outpatient_insurance": 528206.7291986159,
-      "selfpay": 289246.57553522586,
-      "product": 10821.258825322897,
-      "total": 828274.5635591646
+      "outpatient_insurance": 540754.626611705,
+      "selfpay": 296117.81771423004,
+      "product": 11078.324928639391,
+      "total": 847950.7692545744
     },
     {
       "date": "2026-09-18",
       "status": "remaining",
-      "outpatient_insurance": 533842.0811565685,
-      "selfpay": 421627.71047112317,
-      "product": 9970.977182218337,
-      "total": 965440.7688099099
+      "outpatient_insurance": 546523.8500528218,
+      "selfpay": 431643.75336693035,
+      "product": 10207.844287225786,
+      "total": 988375.447706978
     },
     {
       "date": "2026-09-19",
       "status": "remaining",
-      "outpatient_insurance": 656937.5751278776,
-      "selfpay": 269466.7642048273,
-      "product": 16640.175061722894,
-      "total": 943044.5143944279
+      "outpatient_insurance": 672543.5582474312,
+      "selfpay": 275868.12398797367,
+      "product": 17035.473338076037,
+      "total": 965447.1555734809
     },
     {
       "date": "2026-09-22",
       "status": "remaining",
-      "outpatient_insurance": 524708.9173009559,
-      "selfpay": 229567.90040013558,
-      "product": 11640.016461016634,
-      "total": 765916.834162108
+      "outpatient_insurance": 537173.7218974717,
+      "selfpay": 235021.4364956139,
+      "product": 11916.532689162954,
+      "total": 784111.6910822486
     },
     {
       "date": "2026-09-24",
       "status": "remaining",
-      "outpatient_insurance": 203234.9760790062,
-      "selfpay": 93357.15129360158,
-      "product": 4108.528638215352,
-      "total": 300700.65601082315
+      "outpatient_insurance": 208062.95627997807,
+      "selfpay": 95574.91167501065,
+      "product": 4206.129431657119,
+      "total": 307843.9973866458
     },
     {
       "date": "2026-09-25",
       "status": "remaining",
-      "outpatient_insurance": 533842.0811565685,
-      "selfpay": 421627.71047112317,
-      "product": 9970.977182218337,
-      "total": 965440.7688099099
+      "outpatient_insurance": 546523.8500528218,
+      "selfpay": 431643.75336693035,
+      "product": 10207.844287225786,
+      "total": 988375.447706978
     },
     {
       "date": "2026-09-26",
       "status": "remaining",
-      "outpatient_insurance": 656937.5751278776,
-      "selfpay": 269466.7642048273,
-      "product": 16640.175061722894,
-      "total": 943044.5143944279
+      "outpatient_insurance": 672543.5582474312,
+      "selfpay": 275868.12398797367,
+      "product": 17035.473338076037,
+      "total": 965447.1555734809
     },
     {
       "date": "2026-09-28",
       "status": "remaining",
-      "outpatient_insurance": 562050.6889136177,
-      "selfpay": 349182.04238897545,
-      "product": 10433.755719151344,
-      "total": 921666.4870217445
+      "outpatient_insurance": 575402.5717950498,
+      "selfpay": 357477.09090726555,
+      "product": 10681.616431936613,
+      "total": 943561.279134252
     },
     {
       "date": "2026-09-29",
       "status": "remaining",
-      "outpatient_insurance": 524708.9173009559,
-      "selfpay": 229567.90040013558,
-      "product": 11640.016461016634,
-      "total": 765916.834162108
+      "outpatient_insurance": 537173.7218974717,
+      "selfpay": 235021.4364956139,
+      "product": 11916.532689162954,
+      "total": 784111.6910822486
     },
     {
       "date": "2026-09-30",
       "status": "remaining",
-      "outpatient_insurance": 528206.7291986159,
-      "selfpay": 289246.57553522586,
-      "product": 10821.258825322897,
-      "total": 828274.5635591646
+      "outpatient_insurance": 540754.626611705,
+      "selfpay": 296117.81771423004,
+      "product": 11078.324928639391,
+      "total": 847950.7692545744
     }
   ],
   "daily_actual": [
@@ -378,7 +378,7 @@
       "2026-09-05"
     ],
     "unrecorded_days_count": 1,
-    "unrecorded_estimated_amount": 943045,
+    "unrecorded_estimated_amount": 965447,
     "state_counts": {
       "closed": 9,
       "recorded": 3,
@@ -521,7 +521,7 @@
     "2026-09-05"
   ],
   "unrecorded_days_count": 1,
-  "unrecorded_estimated_amount": 943045,
+  "unrecorded_estimated_amount": 965447,
   "day_data_status": [
     {
       "date": "2026-09-01",
@@ -648,8 +648,8 @@
   "forecast_composition": {
     "confirmed_actual": 3602530,
     "locked_or_expected": 1735148,
-    "remaining_forecast": 15282692,
-    "total_forecast": 20620369,
+    "remaining_forecast": 15645742,
+    "total_forecast": 20983419,
     "labels": {
       "confirmed_actual": "確定実績",
       "locked_or_expected": "確度の高い見込み",
@@ -668,8 +668,8 @@
       "care_expected": 584800
     },
     "remaining_forecast_detail": {
-      "elapsed_unrecorded": 943045,
-      "remaining": 14339647
+      "elapsed_unrecorded": 965447,
+      "remaining": 14680295
     },
     "confirmed_actual_through": "2026-09-04",
     "actual_data_status": "imported",
@@ -678,11 +678,11 @@
     "note": "confirmed_actual だけが実績。locked_or_expected は確度が高くても見込みであり、実績に含めない。actual_to_date_total は互換用で外来保険+自費+物販の確定分のみ"
   },
   "visit_care_forecast_total": 2051628,
-  "normal_baseline_forecast": 21522471,
-  "gap_to_normal_baseline": -902102,
+  "normal_baseline_forecast": 21906951,
+  "gap_to_normal_baseline": -923532,
   "previous_year_actual": 19752670,
-  "yoy_diff": 867699,
-  "yoy_rate": 4.4,
+  "yoy_diff": 1230749,
+  "yoy_rate": 6.2,
   "progress_through_yesterday": {
     "comparison_base": "外来保険+自費+物販（訪問保険・介護は入力遅れのため同日実績に含めず、月末着地見込みで別建て反映）",
     "current_cutoff": "2026-09-04",
@@ -727,20 +727,20 @@
   },
   "landing_beats_prevyear": true,
   "actual_unique_patients_to_date": 203,
-  "forecast_unique_patients_month": 892,
+  "forecast_unique_patients_month": 910,
   "previous_year_unique_patients": 860,
   "unique_patients_logic_note": "月間ユニーク患者数は当月レセコン更新ファイルを直接読み、受診者を as_of前日まで重複排除して人数のみ算出（個人識別子・氏名は非出力）。月末見込み＝来院見込み×前年同月の『総患者数÷総来院回数』比(0.633)。前年同月は monthly_feature_table の確定値。",
-  "forecast_low_80": 18850468,
-  "forecast_high_80": 21760587,
-  "insurance_forecast": 13666347,
-  "insurance_forecast_total": 13666347,
-  "outpatient_insurance_forecast": 11614719,
+  "forecast_low_80": 19173899,
+  "forecast_high_80": 22149162,
+  "insurance_forecast": 13899203,
+  "insurance_forecast_total": 13899203,
+  "outpatient_insurance_forecast": 11847575,
   "visit_insurance_forecast": 1466828,
   "care_forecast": 584800,
-  "visit_care_adjustment_amount": 217856,
+  "visit_care_adjustment_amount": 181812,
   "visit_care_logic_note": "訪問保険は月初入力遅れのため予約ペース補正(0.85)を適用せず過去12か月平均で見込み（訪問=1,466,828）。介護は2026-06の制度・算定運用変更以降、改定前の金額水準を使わない。['2026-06'] の訪問日単価×推定訪問日数12日（推定訪問日数（過去12か月の visit_service_days 中央値・12か月）。訪問予約データが無いため予定表ではない）で見込み（介護=584,800）。木曜休診の暦調整は非適用。",
-  "selfpay_forecast": 6688665,
-  "product_forecast": 265357,
+  "selfpay_forecast": 6813849,
+  "product_forecast": 270368,
   "insurance_prevyear": 13693510,
   "selfpay_prevyear": 5869820,
   "product_prevyear": 189340,
@@ -754,21 +754,21 @@
   "outpatient_remaining_days_count": 17,
   "outpatient_month_days_count": 21,
   "outpatient_days_note": "外来保険・自費・物販のいずれかに売上が立った日を外来診療日として数える。木曜休診で訪問・介護だけ売上が立った日は含まない。actual_days_count は従来どおり『その日に何らかの売上があったか』で数えており、訪問・介護だけの日も含むため、この値とは一致しないことがある。",
-  "reservation_count_remaining": 884,
-  "reservation_factor": 1.049,
+  "reservation_count_remaining": 905,
+  "reservation_factor": 1.074,
   "reservation_growth_multiplier": 1.482,
-  "reservation_visible_remaining_as_of": 884,
-  "reservation_projected_final_remaining": 1310,
-  "reservation_factor_raw_before_growth": 0.708,
-  "reservation_factor_after_growth": 1.049,
-  "reservation_factor_final": 1.049,
+  "reservation_visible_remaining_as_of": 905,
+  "reservation_projected_final_remaining": 1342,
+  "reservation_factor_raw_before_growth": 0.724,
+  "reservation_factor_after_growth": 1.074,
+  "reservation_factor_final": 1.074,
   "reservation_growth_by_type": {
     "都度治療型": 1.962,
     "継続管理型": 1.276,
     "高単価型": 1.473,
     "混合・判定保留": 1.692
   },
-  "reservation_growth_logic_note": "月中の予約増加を過去実績から見込み、現在見えている予約数だけで過小評価しないよう補正。過去12か月の同日(D5)→月末 残り予約 増加倍率(中央値)=1.48x。現残り予約884件 → 月末最終見込み1310件。factor: 増加織込前0.71 → 織込後1.05 → 適用1.05（上下限[0.85,1.1]）。訪問・介護にはこの予約増加ロジックを適用せず、過去12か月平均で別建て。",
+  "reservation_growth_logic_note": "月中の予約増加を過去実績から見込み、現在見えている予約数だけで過小評価しないよう補正。過去12か月の同日(D5)→月末 残り予約 増加倍率(中央値)=1.48x。現残り予約905件 → 月末最終見込み1342件。factor: 増加織込前0.72 → 織込後1.07 → 適用1.07（上下限[0.85,1.1]）。訪問・介護にはこの予約増加ロジックを適用せず、過去12か月平均で別建て。",
   "outpatient_visit_actual_to_date": 203,
   "outpatient_unique_patients_actual_to_date": 178,
   "outpatient_patient_counts_source": {
@@ -780,9 +780,9 @@
   "insurance_actual_to_date": 2129080,
   "selfpay_actual_to_date": 1419000,
   "product_actual_to_date": 54450,
-  "insurance_remaining": 11537267,
-  "selfpay_remaining": 5269665,
-  "product_remaining": 210907,
+  "insurance_remaining": 11770123,
+  "selfpay_remaining": 5394849,
+  "product_remaining": 215918,
   "leak_checks": {
     "1_actual_to_date_取得": {
       "ok": true,
@@ -790,7 +790,7 @@
     },
     "2_reservation_取得": {
       "ok": true,
-      "detail": "as_of翌日以降の予約=884件 / reservation_data_through=2026-09-30 / status=反映済み"
+      "detail": "as_of翌日以降の予約=905件 / reservation_data_through=2026-09-30 / status=反映済み"
     },
     "3_as_of超の実績を不使用": {
       "ok": true,

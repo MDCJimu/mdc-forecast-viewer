@@ -3,11 +3,11 @@
   "model_version": "v3 candidate",
   "model_status": "shadow",
   "as_of_date": "2026-09-05",
-  "generated_at": "2026-09-05 07:49:52",
+  "generated_at": "2026-09-05 16:46:03",
   "forecast_total": 5337678,
-  "v21_forecast_total": 20364640,
-  "v20_forecast_total": 20620369,
-  "difference_vs_v21": -15026962,
+  "v21_forecast_total": 20374499,
+  "v20_forecast_total": 20983419,
+  "difference_vs_v21": -15036821,
   "progress": 0.1429,
   "elapsed_clinic_days": 3,
   "total_clinic_days": 21,
@@ -40,8 +40,8 @@
   },
   "config_version": "v3-2026-07-25",
   "recompute_check": {
-    "recomputed_v21_total_calendar_basis": 20364640,
-    "authoritative_v21_total": 20364640,
+    "recomputed_v21_total_calendar_basis": 20374499,
+    "authoritative_v21_total": 20374499,
     "note": "当月は本番の日数会計(worked木曜等)を権威採用。calendar基準の再計算値は参考。progress>=0.40ではv3=v2.1。",
     "v3_equals_v21_when_prog_ge_040": false
   }

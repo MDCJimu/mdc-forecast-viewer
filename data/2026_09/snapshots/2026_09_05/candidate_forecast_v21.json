@@ -4,38 +4,38 @@
   "target_month": "2026-09",
   "as_of_date": "2026-09-05",
   "actual_data_through": "2026-09-04",
-  "generated_at": "2026-09-05 07:49:51",
-  "current_model_forecast_total": 20620369,
-  "candidate_forecast_total": 20364640,
-  "difference_vs_current": 255729,
+  "generated_at": "2026-09-05 16:46:01",
+  "current_model_forecast_total": 20983419,
+  "candidate_forecast_total": 20374499,
+  "difference_vs_current": 608920,
   "difference_breakdown": {
-    "insurance_adjust_reduced": 0,
-    "selfpay_adjust_removed": 245889,
-    "product_adjust_removed": 9841
+    "insurance_adjust_reduced": 222997,
+    "selfpay_adjust_removed": 371073,
+    "product_adjust_removed": 14851
   },
-  "candidate_remaining_forecast_total": 14097267,
-  "candidate_remaining_daily_average": 829251,
-  "candidate_yoy_diff": 611970,
+  "candidate_remaining_forecast_total": 14106466,
+  "candidate_remaining_daily_average": 829792,
+  "candidate_yoy_diff": 621829,
   "candidate_yoy_rate": 3.1,
-  "reservation_count_factor": 1.0489,
-  "reservation_sales_factor_insurance": 1.0489,
+  "reservation_count_factor": 1.0739,
+  "reservation_sales_factor_insurance": 1.05,
   "reservation_sales_factor_selfpay": 1.0,
   "reservation_sales_factor_product": 1.0,
-  "candidate_remaining_insurance": 9145182,
+  "candidate_remaining_insurance": 9154380,
   "candidate_remaining_selfpay": 4766883,
   "candidate_remaining_product": 185202,
   "visit_care_forecast_total": 2051628,
   "explanation": {
-    "text": "現行モデルv2.0では、予約件数に基づく補正を外来保険・自費・物販すべてに適用しています。候補モデルv2.1では、予約件数との関連が強い外来保険だけを最大1.05まで補正し、自費と物販には一律の予約補正を掛けていません。このため候補モデルの着地見込みは現行モデルより約26万円低くなっています。訪問・介護は両モデルとも別建てで同額です。件数（来院・患者・初診）の見込みは現行の件数用factorを維持しており候補でも変わりません。",
+    "text": "現行モデルv2.0では、予約件数に基づく補正を外来保険・自費・物販すべてに適用しています。候補モデルv2.1では、予約件数との関連が強い外来保険だけを最大1.05まで補正し、自費と物販には一律の予約補正を掛けていません。このため候補モデルの着地見込みは現行モデルより約61万円低くなっています。訪問・介護は両モデルとも別建てで同額です。件数（来院・患者・初診）の見込みは現行の件数用factorを維持しており候補でも変わりません。",
     "past12_weekday_avg_remaining_daily": 809421,
     "current_month_actual_daily": 1095350,
     "current_over_weekday_model_r": 1.3466,
     "pre_adjust_remaining_insurance": 9344741,
-    "insurance_adjust_current": 457378,
-    "insurance_adjust_candidate": 457378,
-    "selfpay_adjust_current": 245889,
+    "insurance_adjust_current": 690234,
+    "insurance_adjust_candidate": 467237,
+    "selfpay_adjust_current": 371073,
     "selfpay_adjust_candidate": 0,
-    "product_adjust_current": 9841,
+    "product_adjust_current": 14851,
     "product_adjust_candidate": 0,
     "visit_care_separate_amount": 2051628
   },
@@ -49,12 +49,12 @@
       "yoy_rate": 0.8
     },
     "v2_1候補モデル": {
-      "month": 20364640,
+      "month": 20374499,
       "yoy_rate": 3.1
     },
     "v2_0現行基準予測": {
-      "month": 20620369,
-      "yoy_rate": 4.4
+      "month": 20983419,
+      "yoy_rate": 6.2
     },
     "保守ライン": {
       "month": 17721824
@@ -64,8 +64,8 @@
     }
   },
   "recompute_check": {
-    "recomputed_current_forecast_total": 20620369,
-    "production_current_forecast_total": 20620369,
+    "recomputed_current_forecast_total": 20983419,
+    "production_current_forecast_total": 20983419,
     "gap_yen": 0,
     "match": true
   }
